@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0171b9">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ÖSD Korrektur">
+  <meta name="description" content="Private Erfassung von ÖSD-Korrekturaufträgen und Honoraren.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/osd-logo.svg">
+  <link rel="icon" href="icons/osd-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>ÖSD Korrektur</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="icons/osd-logo.svg" alt="" class="brand-logo">
+        <div>
+          <p class="eyebrow">Private Arbeitsübersicht</p>
+          <h1>ÖSD Korrektur</h1>
+        </div>
+      </div>
+      <button class="icon-button" id="install-help-button" aria-label="Installationshilfe" title="Installationshilfe">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"/></svg>
+      </button>
+    </header>
+
+    <main>
+      <section class="page active" id="page-today" data-page="today">
+        <div class="welcome-row">
+          <div class="welcome-mark" aria-hidden="true">✓</div>
+          <div>
+            <h2>Dein Arbeitstag</h2>
+            <p>Tag auswählen und Korrekturen erfassen</p>
+          </div>
+        </div>
+
+        <section class="card calendar-card" aria-labelledby="calendar-title">
+          <div class="calendar-header">
+            <button class="round-button" id="previous-month" aria-label="Vorheriger Monat">‹</button>
+            <h3 id="calendar-title"></h3>
+            <button class="round-button" id="next-month" aria-label="Nächster Monat">›</button>
+          </div>
+          <div class="weekdays" aria-hidden="true">
+            <span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span>
+          </div>
+          <div class="calendar-grid" id="calendar-grid"></div>
+          <button class="text-button calendar-today" id="calendar-today">Heute auswählen</button>
+        </section>
+
+        <section class="summary-card" aria-live="polite">
+          <div class="summary-label"><span>Tagesübersicht</span><span aria-hidden="true">✦</span></div>
+          <div class="summary-values">
+            <div><span>Verdienst</span><strong id="today-earnings">0,00 €</strong></div>
+            <div class="align-right"><span>Aufträge</span><strong id="today-count">0</strong></div>
+          </div>
+        </section>
+
+        <div class="section-heading">
+          <h2>Aufträge eintragen</h2>
+          <span id="selected-date-label"></span>
+        </div>
+        <div class="counter-list" id="counter-list"></div>
+      </section>
+
+      <section class="page" id="page-history" data-page="history">
+        <div class="page-title">
+          <p class="eyebrow">Deine Arbeitstage</p>
+          <h2>Verlauf</h2>
+        </div>
+        <div class="history-total card">
+          <div><span>Gesamtaufträge</span><strong id="history-total-count">0</strong></div>
+          <div><span>Gesamtverdienst</span><strong id="history-total-earnings">0,00 €</strong></div>
+        </div>
+        <div id="history-list" class="history-list"></div>
+      </section>
+
+      <section class="page" id="page-calculator" data-page="calculator">
+        <div class="page-title">
+          <p class="eyebrow">Schnell nachrechnen</p>
+          <h2>Taschenrechner</h2>
+        </div>
+        <section class="card calculator-day-card">
+          <label for="calculator-date">Arbeitstag</label>
+          <input type="date" id="calculator-date">
+          <div class="calculator-metrics">
+            <div><span>Aufträge</span><strong id="calculator-day-count">0</strong></div>
+            <div><span>Verdienst</span><strong id="calculator-day-earnings">0,00 €</strong></div>
+          </div>
+          <button class="primary-button" id="use-day-earnings">Tagesverdienst übernehmen</button>
+        </section>
+        <section class="calculator-display" aria-live="polite">
+          <span id="calculator-operation">&nbsp;</span>
+          <strong id="calculator-display">0</strong>
+          <small>EUR</small>
+        </section>
+        <div class="calculator-grid" id="calculator-grid" aria-label="Taschenrechner-Tasten"></div>
+      </section>
+
+      <section class="page" id="page-invoice" data-page="invoice">
+        <div class="page-title">
+          <p class="eyebrow">Automatisch zusammengerechnet</p>
+          <h2>Monatsabrechnung</h2>
+        </div>
+
+        <section class="summary-card invoice-summary" aria-live="polite">
+          <div class="invoice-month-picker">
+            <button class="round-button light" id="invoice-previous-month" aria-label="Vorheriger Monat">‹</button>
+            <strong id="invoice-month-label"></strong>
+            <button class="round-button light" id="invoice-next-month" aria-label="Nächster Monat">›</button>
+          </div>
+          <div class="summary-values">
+            <div><span>Gesamt brutto</span><strong id="invoice-total-earnings">0,00&nbsp;€</strong></div>
+            <div class="align-right"><span>Aufträge</span><strong id="invoice-total-count">0</strong></div>
+          </div>
+        </section>
+
+        <section class="card invoice-preview-card">
+          <div class="card-heading">
+            <div><h3>Detailaufstellung</h3><p>Alle Einträge des ausgewählten Monats werden automatisch übernommen.</p></div>
+          </div>
+          <div class="invoice-table-wrap">
+            <table class="invoice-preview-table">
+              <thead><tr><th>Tätigkeit</th><th>Stufe + Modul</th><th>Anzahl</th><th>EUR</th></tr></thead>
+              <tbody id="invoice-table-body"></tbody>
+              <tfoot><tr><th colspan="3">Gesamt brutto</th><th id="invoice-table-total">0,00</th></tr></tfoot>
+            </table>
+          </div>
+          <div class="empty-state compact" id="invoice-empty" hidden><strong>Keine Aufträge in diesem Monat</strong>Wähle im Kalender Tage aus und trage Aufträge ein.</div>
+        </section>
+
+        <details class="card invoice-details-card" open>
+          <summary><strong>Rechnungs- und E-Mail-Daten</strong><span>Nur lokal gespeichert</span></summary>
+          <div class="invoice-form">
+            <label><span>Honorar-Nummer</span><input id="invoice-number" autocomplete="off" placeholder="1"></label>
+            <label><span>E-Mail-Empfänger</span><input id="invoice-email" type="email" inputmode="email" autocomplete="email" placeholder="rechnung@beispiel.at"></label>
+            <label class="full"><span>Empfänger</span><input id="invoice-recipient" autocomplete="organization"></label>
+            <label class="full"><span>Empfängeradresse</span><textarea id="invoice-recipient-address" rows="2"></textarea></label>
+            <label class="full"><span>Dein Name</span><input id="invoice-sender-name" autocomplete="name" placeholder="Vor- und Nachname"></label>
+            <label><span>Ort</span><input id="invoice-city" autocomplete="address-level2" placeholder="Wien"></label>
+            <label><span>Bank</span><input id="invoice-bank" autocomplete="off"></label>
+            <label class="full"><span>IBAN</span><input id="invoice-iban" autocomplete="off" autocapitalize="characters"></label>
+            <label class="full"><span>BIC</span><input id="invoice-bic" autocomplete="off" autocapitalize="characters"></label>
+          </div>
+        </details>
+
+        <section class="card invoice-actions-card">
+          <div class="card-heading">
+            <div><h3>Dokumente erstellen</h3><p>Word und Excel enthalten die Monatssumme und alle Tagesdetails.</p></div>
+          </div>
+          <button class="primary-button" id="share-invoice">Word + Excel per E-Mail teilen</button>
+          <div class="button-row">
+            <button class="secondary-button" id="download-word">Word speichern</button>
+            <button class="secondary-button" id="download-excel">Excel speichern</button>
+          </div>
+          <p class="share-hint">Auf dem iPhone öffnet sich das Teilen-Menü. Dort <strong>Mail</strong> auswählen und die vorbereitete Nachricht absenden.</p>
+        </section>
+      </section>
+
+      <section class="page" id="page-settings" data-page="settings">
+        <div class="page-title">
+          <p class="eyebrow">Vertrag und Daten</p>
+          <h2>Honorare</h2>
+        </div>
+        <section class="card">
+          <div class="card-heading">
+            <div>
+              <h3>Honorar pro Auftrag</h3>
+              <p>Änderungen gelten auch für frühere Tage.</p>
+            </div>
+          </div>
+          <div id="rate-list" class="rate-list"></div>
+          <button class="secondary-button" id="reset-rates">Vertragspreise wiederherstellen</button>
+        </section>
+
+        <section class="card backup-card">
+          <div class="card-heading">
+            <div>
+              <h3>Datensicherung</h3>
+              <p>Sichere deine Einträge als Datei und stelle sie später wieder her.</p>
+            </div>
+          </div>
+          <div class="button-row">
+            <button class="primary-button" id="export-data">Daten exportieren</button>
+            <label class="secondary-button file-button" for="import-file">Daten importieren</label>
+            <input type="file" id="import-file" accept="application/json,.json" hidden>
+          </div>
+        </section>
+
+        <section class="card privacy-card">
+          <div class="privacy-icon" aria-hidden="true">⌾</div>
+          <div><h3>Privat und lokal</h3><p>Deine Arbeitsdaten bleiben auf diesem Gerät und werden an keinen Server übertragen.</p></div>
+        </section>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Hauptnavigation">
+      <button class="nav-item active" data-target="today"><span>✓</span><small>Heute</small></button>
+      <button class="nav-item" data-target="history"><span>▦</span><small>Verlauf</small></button>
+      <button class="nav-item" data-target="invoice"><span>▤</span><small>Monat</small></button>
+      <button class="nav-item" data-target="calculator"><span>±</span><small>Rechner</small></button>
+      <button class="nav-item" data-target="settings"><span>€</span><small>Honorare</small></button>
+    </nav>
+  </div>
+
+  <dialog id="install-dialog" class="install-dialog">
+    <button class="dialog-close" id="close-install-dialog" aria-label="Schließen">×</button>
+    <img src="icons/osd-logo.svg" alt="ÖSD Korrektur App-Symbol">
+    <h2>Auf dem iPhone installieren</h2>
+    <ol>
+      <li>Diese Seite in <strong>Safari</strong> öffnen.</li>
+      <li>Unten auf <strong>Teilen</strong> tippen.</li>
+      <li><strong>Zum Home-Bildschirm</strong> auswählen.</li>
+      <li><strong>Als Web-App öffnen</strong> aktivieren und hinzufügen.</li>
+    </ol>
+    <button class="primary-button" id="native-install-button" hidden>App installieren</button>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
