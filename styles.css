@@ -67,6 +67,45 @@
 .sync-card label { display:grid; gap:5px; margin:10px 0; }
 .sync-card label > span { color:var(--muted); font-size:.76rem; font-weight:700; }
 .sync-card .preference-row { display:flex; }
+
+.account-card {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--aqua) 45%, var(--line));
+  background:
+    radial-gradient(circle at 100% 0%, rgba(66,215,193,.18), transparent 34%),
+    radial-gradient(circle at 0% 100%, rgba(139,124,246,.14), transparent 35%),
+    var(--surface);
+}
+.account-card::after { content:""; position:absolute; width:150px; height:150px; right:-78px; bottom:-82px; border:24px solid rgba(8,123,191,.06); border-radius:50%; pointer-events:none; }
+.account-shield { display:grid; place-items:center; min-width:42px; height:42px; border-radius:15px; color:white; font-weight:900; background:linear-gradient(135deg,var(--aqua),var(--osd-blue),var(--lavender)); box-shadow:0 10px 24px rgba(8,123,191,.22); }
+.account-buttons { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+.account-button { min-height:48px; border:0; border-radius:14px; padding:10px 13px; font:inherit; font-weight:800; cursor:pointer; transition:transform .18s ease,box-shadow .18s ease; }
+.account-button:hover { transform:translateY(-1px); }
+.account-button span { display:inline-grid; place-items:center; width:22px; margin-right:5px; font-size:1.2rem; }
+.apple-login { color:white; background:#111; box-shadow:0 9px 20px rgba(0,0,0,.16); }
+.google-login { color:#263238; background:#fff; border:1px solid #d8dee5; box-shadow:0 9px 20px rgba(30,60,90,.08); }
+.google-login span { color:#4285f4; font-family:Arial,sans-serif; font-weight:900; }
+.account-profile { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:11px; margin:14px 0 8px; padding:11px; border:1px solid var(--line); border-radius:16px; background:color-mix(in srgb,var(--surface-solid) 88%,transparent); }
+.account-profile div { display:grid; min-width:0; }
+.account-profile strong,.account-profile small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.account-profile small { color:var(--muted); }
+.account-avatar { display:grid; place-items:center; width:42px; height:42px; border-radius:14px; color:white; font-weight:900; background:linear-gradient(135deg,var(--osd-blue),var(--lavender)); }
+.compact-button { min-height:36px!important; padding:7px 10px!important; }
+.account-auto { margin:13px 0 7px!important; }
+.account-sync-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.account-sync-actions button:disabled { opacity:.42; cursor:not-allowed; }
+.account-status { min-height:20px; font-weight:650; }
+.account-status.is-success { color:#16856f; }
+.account-status.is-warning { color:#b26000; }
+.account-setup { margin-top:12px; padding:10px 12px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.32); }
+.account-setup summary { cursor:pointer; font-weight:800; color:var(--osd-blue); }
+.account-setup p { margin:8px 0; color:var(--muted); font-size:.8rem; }
+.account-setup label { display:grid; gap:5px; margin:9px 0; }
+.account-setup label span { color:var(--muted); font-size:.76rem; font-weight:700; }
+.account-setup input { width:100%; min-height:42px; border:1px solid var(--line); border-radius:11px; padding:8px 10px; color:var(--text); background:var(--surface-solid); font:inherit; }
+.security-note { display:flex; gap:7px; margin:12px 0 0; color:var(--muted); font-size:.77rem; line-height:1.45; }
+@media (max-width:600px) { .account-buttons { grid-template-columns:1fr; } .account-profile { grid-template-columns:auto 1fr; } .account-profile .compact-button { grid-column:1 / -1; } }
 .preset-management { display:grid; gap:7px; }
 .management-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
 .management-row > span { display:flex; flex-direction:column; gap:2px; }
