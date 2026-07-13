@@ -32,6 +32,12 @@ function defaultState() {
     rates: Object.fromEntries(categories.map(category => [category.id, category.defaultRate])),
     entries: {},
     entryRates: {},
+    workSeconds: {},
+    activeTimer: null,
+    tasks: [],
+    presets: [],
+    invoices: [],
+    sync: { url: "", token: "", auto: false, lastSync: "" },
     preferences: { theme: "system", hideAmounts: false },
     selectedDate: dayKey(new Date()),
     invoiceProfile: defaultInvoiceProfile()
@@ -45,10 +51,13 @@ function defaultInvoiceProfile() {
     recipient: "Österreichisches Sprachdiplom Deutsch",
     recipientAddress: "Hörlgasse 12\n1090 Wien",
     senderName: "",
+    senderAddress: "",
     city: "Wien",
     bank: "",
     iban: "",
-    bic: ""
+    bic: "",
+    taxNote: "",
+    paymentDueDays: 14
   };
 }
 
@@ -56,7 +65,8 @@ function sanitizeInvoiceProfile(profile) {
   const clean = defaultInvoiceProfile();
   if (!profile || typeof profile !== "object") return clean;
   for (const key of Object.keys(clean)) {
-    if (typeof profile[key] === "string") clean[key] = profile[key].slice(0, 300);
+    if (typeof clean[key] === "string" && typeof profile[key] === "string") clean[key] = profile[key].slice(0, 300);
+    if (key === "paymentDueDays") clean[key] = Math.max(0, Math.min(90, Math.round(Number(profile[key]) || 14)));
   }
   return clean;
 }
@@ -72,6 +82,12 @@ function loadState() {
     }
     fresh.entries = sanitizeEntries(saved.entries);
     fresh.entryRates = sanitizeEntryRates(saved.entryRates, fresh.entries, fresh.rates);
+    fresh.workSeconds = sanitizeWorkSeconds(saved.workSeconds);
+    fresh.activeTimer = sanitizeActiveTimer(saved.activeTimer);
+    fresh.tasks = sanitizeTasks(saved.tasks);
+    fresh.presets = sanitizePresets(saved.presets);
+    fresh.invoices = sanitizeInvoices(saved.invoices);
+    fresh.sync = sanitizeSync(saved.sync);
     if (/^\d{4}-\d{2}-\d{2}$/.test(saved.selectedDate || "")) fresh.selectedDate = saved.selectedDate;
     fresh.invoiceProfile = sanitizeInvoiceProfile(saved.invoiceProfile);
     if (["system", "light", "dark"].includes(saved.preferences?.theme)) fresh.preferences.theme = saved.preferences.theme;
@@ -80,6 +96,68 @@ function loadState() {
   } catch {
     return defaultState();
   }
+}
+
+function sanitizeWorkSeconds(values) {
+  const clean = {};
+  if (!values || typeof values !== "object") return clean;
+  for (const [date, seconds] of Object.entries(values)) {
+    const value = Number(seconds);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(value) && value > 0) clean[date] = Math.floor(value);
+  }
+  return clean;
+}
+
+function sanitizeActiveTimer(timer) {
+  if (!timer || !/^\d{4}-\d{2}-\d{2}$/.test(timer.date || "") || !Number.isFinite(Number(timer.startedAt))) return null;
+  return { date: timer.date, startedAt: Number(timer.startedAt) };
+}
+
+function sanitizeTasks(tasks) {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.filter(task => task && categories.some(category => category.id === task.categoryID) && /^\d{4}-\d{2}-\d{2}$/.test(task.dueDateKey || ""))
+    .map(task => ({
+      id: String(task.id || crypto.randomUUID()),
+      title: String(task.title || "ÖSD-Auftrag").slice(0, 80),
+      categoryID: task.categoryID,
+      count: Math.max(1, Math.floor(Number(task.count) || 1)),
+      dueDateKey: task.dueDateKey,
+      isCompleted: task.isCompleted === true,
+      createdAt: String(task.createdAt || new Date().toISOString())
+    }));
+}
+
+function sanitizePresets(presets) {
+  if (!Array.isArray(presets)) return [];
+  return presets.map(preset => ({
+    id: String(preset?.id || crypto.randomUUID()),
+    title: String(preset?.title || "Vorlage").slice(0, 40),
+    counts: sanitizeEntries({ "2020-01-01": preset?.counts })["2020-01-01"] || {}
+  })).filter(preset => Object.keys(preset.counts).length);
+}
+
+function sanitizeInvoices(invoices) {
+  if (!Array.isArray(invoices)) return [];
+  return invoices.filter(item => item && /^\d{4}-\d{2}$/.test(item.monthKey || "")).map(item => ({
+    id: String(item.id || crypto.randomUUID()),
+    monthKey: item.monthKey,
+    number: String(item.number || "1").slice(0, 30),
+    status: ["draft", "sent", "paid"].includes(item.status) ? item.status : "draft",
+    totalCents: Math.max(0, Math.round(Number(item.totalCents) || 0)),
+    totalCount: Math.max(0, Math.round(Number(item.totalCount) || 0)),
+    createdAt: String(item.createdAt || new Date().toISOString()),
+    sentAt: item.sentAt || null,
+    paidAt: item.paidAt || null
+  }));
+}
+
+function sanitizeSync(sync) {
+  return {
+    url: typeof sync?.url === "string" ? sync.url.slice(0, 500) : "",
+    token: typeof sync?.token === "string" ? sync.token.slice(0, 500) : "",
+    auto: sync?.auto === true,
+    lastSync: typeof sync?.lastSync === "string" ? sync.lastSync : ""
+  };
 }
 
 function sanitizeEntries(entries) {
@@ -118,6 +196,8 @@ let visibleMonth = new Date(dateFromKey(state.selectedDate).getFullYear(), dateF
 let invoiceMonth = new Date(visibleMonth);
 let toastTimer;
 let deferredInstallPrompt = null;
+let cloudSyncTimer;
+let suppressAutoSync = false;
 
 function haptic(strength = "light") {
   if (!("vibrate" in navigator)) return;
@@ -145,6 +225,10 @@ function saveState() {
     localStorage.setItem(storageKey, JSON.stringify(state));
   } catch {
     showToast("Speichern nicht möglich. Bitte Safari-Speicher prüfen.");
+  }
+  if (!suppressAutoSync && state.sync?.auto && state.sync?.url) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(() => uploadCloudBackup(true), 1400);
   }
 }
 
@@ -202,6 +286,274 @@ function totalsForMonth(monthDate) {
     total.cents += row.amountCents;
     return total;
   }, { count: 0, cents: 0 });
+}
+
+function workedSecondsFor(date, now = Date.now()) {
+  let seconds = Math.max(0, Number(state.workSeconds?.[date]) || 0);
+  if (state.activeTimer?.date === date) seconds += Math.max(0, Math.floor((now - state.activeTimer.startedAt) / 1000));
+  return seconds;
+}
+
+function workedSecondsForMonth(monthDate) {
+  const prefix = `${monthKey(monthDate)}-`;
+  return Object.entries(state.workSeconds || {}).filter(([date]) => date.startsWith(prefix)).reduce((sum, [, seconds]) => sum + seconds, 0);
+}
+
+function formatDuration(seconds, withSeconds = false) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const rest = safe % 60;
+  if (withSeconds) return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  return hours > 0 ? `${hours} Std. ${minutes} Min.` : `${minutes} Min.`;
+}
+
+function stopActiveTimer() {
+  if (!state.activeTimer) return;
+  const elapsed = Math.max(1, Math.floor((Date.now() - state.activeTimer.startedAt) / 1000));
+  state.workSeconds[state.activeTimer.date] = (state.workSeconds[state.activeTimer.date] || 0) + elapsed;
+  state.activeTimer = null;
+  saveState();
+}
+
+function toggleTimer() {
+  if (state.activeTimer?.date === state.selectedDate) stopActiveTimer();
+  else {
+    if (state.activeTimer) stopActiveTimer();
+    state.activeTimer = { date: state.selectedDate, startedAt: Date.now() };
+    saveState();
+  }
+  renderTimer();
+  haptic("medium");
+}
+
+function addWorkMinutes(minutes) {
+  const current = state.workSeconds[state.selectedDate] || 0;
+  state.workSeconds[state.selectedDate] = Math.max(0, current + minutes * 60);
+  if (!state.workSeconds[state.selectedDate]) delete state.workSeconds[state.selectedDate];
+  saveState();
+  renderTimer();
+  renderHistory();
+}
+
+function saveCurrentPreset() {
+  const counts = state.entries[state.selectedDate] || {};
+  if (!Object.values(counts).some(value => value > 0)) {
+    showToast("Dieser Tag enthält noch keine Aufträge.");
+    return;
+  }
+  const title = prompt("Name der Vorlage:", `Vorlage ${state.presets.length + 1}`)?.trim();
+  if (!title) return;
+  state.presets.push({ id: crypto.randomUUID(), title: title.slice(0, 40), counts: { ...counts } });
+  saveState();
+  renderPresets();
+  renderPresetManagement();
+  showToast("Schnellvorlage gespeichert");
+}
+
+function applyPreset(preset) {
+  for (const [categoryId, count] of Object.entries(preset.counts)) {
+    setCount(state.selectedDate, categoryId, countFor(state.selectedDate, categoryId) + count);
+  }
+  showToast(`${preset.title} übernommen`);
+}
+
+function addPlannedTask(event) {
+  event.preventDefault();
+  const title = document.querySelector("#task-title").value.trim() || "ÖSD-Auftrag";
+  const categoryID = document.querySelector("#task-category").value;
+  const count = Math.max(1, Math.floor(Number(document.querySelector("#task-count").value) || 1));
+  const dueDateKey = document.querySelector("#task-due").value || state.selectedDate;
+  state.tasks.push({ id: crypto.randomUUID(), title: title.slice(0, 80), categoryID, count, dueDateKey, isCompleted: false, createdAt: new Date().toISOString() });
+  saveState();
+  event.target.reset();
+  document.querySelector("#task-count").value = "1";
+  document.querySelector("#task-due").value = state.selectedDate;
+  renderTasks();
+  showToast("Auftrag vorgemerkt");
+}
+
+function applyTask(task) {
+  setCount(state.selectedDate, task.categoryID, countFor(state.selectedDate, task.categoryID) + task.count);
+  task.isCompleted = true;
+  saveState();
+  renderTasks();
+  showToast("Auftrag übernommen und erledigt");
+}
+
+function deleteTask(taskId) {
+  state.tasks = state.tasks.filter(task => task.id !== taskId);
+  saveState();
+  renderTasks();
+}
+
+function nextInvoiceNumber() {
+  const numbers = state.invoices.map(item => Number(String(item.number).replace(/\D/g, "")) || 0);
+  const configured = Number(String(state.invoiceProfile.number).replace(/\D/g, "")) || 1;
+  return String(Math.max(configured, (Math.max(0, ...numbers) || 0) + 1));
+}
+
+function archiveInvoice(monthDate, quiet = false) {
+  const key = monthKey(monthDate);
+  const totals = totalsForMonth(monthDate);
+  if (!totals.count) {
+    if (!quiet) showToast("Dieser Monat enthält keine Aufträge.");
+    return null;
+  }
+  let record = state.invoices.find(item => item.monthKey === key);
+  if (record) {
+    if (record.status === "draft") Object.assign(record, { totalCents: totals.cents, totalCount: totals.count });
+  } else {
+    record = { id: crypto.randomUUID(), monthKey: key, number: nextInvoiceNumber(), status: "draft", totalCents: totals.cents, totalCount: totals.count, createdAt: new Date().toISOString(), sentAt: null, paidAt: null };
+    state.invoices.push(record);
+    state.invoices.sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+  }
+  saveState();
+  renderInvoiceArchive();
+  if (!quiet) showToast("Monat als Rechnungsentwurf archiviert");
+  return record;
+}
+
+function updateInvoiceStatus(record, status) {
+  record.status = status;
+  if (status === "sent" && !record.sentAt) record.sentAt = new Date().toISOString();
+  if (status === "paid" && !record.paidAt) record.paidAt = new Date().toISOString();
+  saveState();
+  renderInvoiceArchive();
+}
+
+function ensureMonthlyArchives() {
+  const current = monthKey(new Date());
+  const past = [...new Set(Object.keys(state.entries).map(date => date.slice(0, 7)).filter(key => key < current))];
+  for (const key of past) {
+    if (!state.invoices.some(item => item.monthKey === key)) archiveInvoice(new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1, 12), true);
+  }
+}
+
+function portableBackup() {
+  return {
+    version: 4,
+    exportedAt: new Date().toISOString(),
+    rates: state.rates,
+    entries: state.entries,
+    entryRates: state.entryRates,
+    invoiceProfile: state.invoiceProfile,
+    workSeconds: state.workSeconds,
+    tasks: state.tasks,
+    presets: state.presets,
+    invoices: state.invoices,
+    preferences: state.preferences
+  };
+}
+
+function applyImportedBackup(imported, preserveSync = true) {
+  const nextState = defaultState();
+  nextState.entries = sanitizeEntries(imported.entries);
+  for (const category of categories) {
+    const rate = Number(imported.rates?.[category.id]);
+    if (Number.isFinite(rate) && rate >= 0) nextState.rates[category.id] = Math.round(rate);
+  }
+  nextState.entryRates = sanitizeEntryRates(imported.entryRates, nextState.entries, nextState.rates);
+  nextState.invoiceProfile = sanitizeInvoiceProfile(imported.invoiceProfile);
+  nextState.workSeconds = sanitizeWorkSeconds(imported.workSeconds);
+  nextState.tasks = sanitizeTasks(imported.tasks);
+  nextState.presets = sanitizePresets(imported.presets);
+  nextState.invoices = sanitizeInvoices(imported.invoices);
+  nextState.preferences = {
+    theme: ["system", "light", "dark"].includes(imported.preferences?.theme) ? imported.preferences.theme : state.preferences.theme,
+    hideAmounts: imported.preferences?.hideAmounts === true
+  };
+  nextState.selectedDate = state.selectedDate;
+  if (preserveSync) nextState.sync = state.sync;
+  suppressAutoSync = true;
+  state = nextState;
+  saveState();
+  suppressAutoSync = false;
+  ensureMonthlyArchives();
+  renderAll();
+}
+
+function parseDelimitedLine(line, delimiter) {
+  const cells = [];
+  let value = "";
+  let quoted = false;
+  for (const character of line) {
+    if (character === '"') quoted = !quoted;
+    else if (character === delimiter && !quoted) { cells.push(value); value = ""; }
+    else value += character;
+  }
+  cells.push(value);
+  return cells.map(cell => cell.trim().replace(/^"|"$/g, ""));
+}
+
+function normalizedImportDate(value) {
+  const clean = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  const match = clean.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  return match ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}` : null;
+}
+
+function importCSVText(text) {
+  const lines = text.split(/\r?\n/).filter(line => line.trim());
+  if (!lines.length) return 0;
+  const delimiter = lines[0].includes(";") ? ";" : ",";
+  let imported = 0;
+  lines.forEach((line, index) => {
+    const cells = parseDelimitedLine(line, delimiter);
+    if (index === 0 && cells[0]?.toLowerCase().includes("datum")) return;
+    const date = normalizedImportDate(cells[0] || "");
+    const categoryText = String(cells[1] || "").toLowerCase();
+    const category = categories.find(item => [item.id, item.title, item.invoiceLevel].map(value => value.toLowerCase()).includes(categoryText));
+    const count = Math.floor(Number(cells[2]));
+    if (!date || !category || !Number.isFinite(count) || count <= 0) return;
+    const rateValue = Number(String(cells[3] || "").replace("€", "").trim().replace(".", "").replace(",", "."));
+    if (!state.entries[date]) state.entries[date] = {};
+    if (!state.entryRates[date]) state.entryRates[date] = {};
+    state.entries[date][category.id] = (state.entries[date][category.id] || 0) + count;
+    if (state.entryRates[date][category.id] === undefined) state.entryRates[date][category.id] = Number.isFinite(rateValue) && rateValue >= 0 ? Math.round(rateValue * 100) : rateFor(category.id);
+    imported += 1;
+  });
+  if (imported) { saveState(); ensureMonthlyArchives(); renderAll(); }
+  return imported;
+}
+
+function cloudHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  if (state.sync.token) headers.Authorization = `Bearer ${state.sync.token}`;
+  return headers;
+}
+
+async function uploadCloudBackup(quiet = false) {
+  if (!state.sync.url) {
+    if (!quiet) showToast("Bitte zuerst eine private Sync-Adresse eintragen.");
+    return;
+  }
+  try {
+    const response = await fetch(state.sync.url, { method: "PUT", headers: cloudHeaders(), body: JSON.stringify(portableBackup()) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.sync.lastSync = new Date().toISOString();
+    suppressAutoSync = true; saveState(); suppressAutoSync = false;
+    renderSyncStatus();
+    if (!quiet) showToast("Cloud-Sicherung aktualisiert");
+  } catch {
+    if (!quiet) showToast("Cloud-Abgleich fehlgeschlagen. Adresse, Token und CORS prüfen.");
+  }
+}
+
+async function downloadCloudBackup() {
+  if (!state.sync.url) return showToast("Bitte zuerst eine private Sync-Adresse eintragen.");
+  try {
+    const response = await fetch(state.sync.url, { method: "GET", headers: cloudHeaders(), cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const imported = await response.json();
+    if (!confirm("Lokale Daten durch die Cloud-Sicherung ersetzen?")) return;
+    applyImportedBackup(imported, true);
+    state.sync.lastSync = new Date().toISOString();
+    suppressAutoSync = true; saveState(); suppressAutoSync = false;
+    showToast("Cloud-Sicherung geladen");
+  } catch {
+    showToast("Cloud-Sicherung konnte nicht geladen werden.");
+  }
 }
 
 function invoicePeriod(monthDate) {
@@ -268,6 +620,7 @@ function buildWordDocument() {
   const rows = rowsForMonth(invoiceMonth);
   const totals = totalsForMonth(invoiceMonth);
   const profile = state.invoiceProfile;
+  const invoiceNumber = state.invoices.find(item => item.monthKey === monthKey(invoiceMonth))?.number || profile.number || "1";
   const period = invoicePeriod(invoiceMonth);
   const year = invoiceMonth.getFullYear();
   const created = numericDate(dayKey(new Date()));
@@ -283,23 +636,29 @@ function buildWordDocument() {
     profile.iban ? `<p><b>IBAN:</b> ${escapeHTML(profile.iban)}</p>` : "",
     profile.bic ? `<p><b>BIC:</b> ${escapeHTML(profile.bic)}</p>` : ""
   ].join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Honorarnote ${escapeHTML(profile.number)}/${year}</title>
+  const senderLine = [profile.senderName, String(profile.senderAddress || "").replaceAll("\n", " · ")].filter(Boolean).map(escapeHTML).join(" · ");
+  const dueDate = new Date(Date.now() + Math.max(0, Number(profile.paymentDueDays) || 0) * 86400000);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Honorarnote ${escapeHTML(invoiceNumber)}/${year}</title>
   <style>
     @page { size: A4; margin: 20mm; } body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.35; color: #111; }
-    .recipient { margin-bottom: 34mm; } .date { text-align: right; margin-bottom: 22mm; } h1 { text-align: center; font-size: 22pt; margin: 0 0 14mm; }
+    .sender { font-size: 9pt; color: #555; border-bottom: 1px solid #ddd; padding-bottom: 2mm; margin-bottom: 8mm; }
+    .recipient { margin-bottom: 27mm; } .date { text-align: right; margin-bottom: 18mm; } h1 { text-align: center; font-size: 22pt; margin: 0 0 14mm; }
     table { width: 100%; border-collapse: collapse; margin: 8mm 0; } th, td { border: 1px solid #333; padding: 7px; vertical-align: top; } th { text-align: left; }
     th:nth-child(1) { width: 50%; } th:nth-child(2) { width: 18%; } th:nth-child(3) { width: 10%; } th:nth-child(4) { width: 22%; text-align: right; }
     td.number { text-align: center; } td.money { text-align: right; } tr.new-day td { border-top-width: 2px; } tfoot th { font-weight: bold; } .bank { margin-top: 10mm; }
     .signature { margin-top: 18mm; width: 60%; border-bottom: 1px dotted #111; padding-bottom: 4px; } .signature-label { font-size: 9pt; }
   </style></head><body>
+    ${senderLine ? `<div class="sender">${senderLine}</div>` : ""}
     <div class="recipient"><b>${escapeHTML(profile.recipient)}</b><br>${escapeWithBreaks(profile.recipientAddress)}</div>
     <div class="date">${escapeHTML(profile.city || "Wien")}, ${created}</div>
-    <h1>Honorarnote &nbsp; ${escapeHTML(profile.number || "1")} / ${year}</h1>
+    <h1>Honorarnote &nbsp; ${escapeHTML(invoiceNumber)} / ${year}</h1>
     <p>Für meine Tätigkeit vom <u>${numericDate(period.first)}</u> bis <u>${numericDate(period.last)}</u> erlaube ich mir, folgenden Betrag in Rechnung zu stellen:</p>
     <table><thead><tr><th>Tätigkeit</th><th>Stufe + Modul</th><th>Anzahl</th><th>EUR</th></tr></thead><tbody>${tableRows}</tbody>
       <tfoot><tr><th colspan="3">Gesamt brutto</th><th style="text-align:right">${plainEuro(totals.cents)}</th></tr></tfoot></table>
     <p>Detailaufstellung und Belege liegen bei.</p>
     ${bankRows ? `<div class="bank"><p>Ich ersuche höflich um Überweisung auf das nachfolgende Konto:</p>${bankRows}</div>` : ""}
+    <p><b>Zahlungsziel:</b> ${numericDate(dayKey(dueDate))}</p>
+    ${profile.taxNote ? `<p>${escapeWithBreaks(profile.taxNote)}</p>` : ""}
     <div class="signature">${escapeHTML(profile.senderName)}</div><div class="signature-label">Name &amp; Unterschrift</div>
   </body></html>`;
 }
@@ -352,6 +711,12 @@ function renderAll() {
   renderInvoice();
   renderInvoiceProfile();
   renderPreferences();
+  renderTimer();
+  renderPresets();
+  renderTasks();
+  renderInvoiceArchive();
+  renderPresetManagement();
+  renderSyncSettings();
 }
 
 function renderCalendar() {
@@ -397,6 +762,8 @@ function selectDate(key) {
   saveState();
   renderCalendar();
   renderWorkday();
+  renderTimer();
+  renderTasks();
 }
 
 function renderWorkday() {
@@ -431,6 +798,82 @@ function renderWorkday() {
     card.querySelector(".decrease").addEventListener("click", () => setCount(state.selectedDate, category.id, count - 1));
     card.querySelector(".increase").addEventListener("click", () => setCount(state.selectedDate, category.id, count + 1));
     list.append(card);
+  }
+}
+
+function renderTimer() {
+  const seconds = workedSecondsFor(state.selectedDate);
+  const running = state.activeTimer?.date === state.selectedDate;
+  const hourly = seconds > 0 ? Math.round(totalsFor(state.selectedDate).cents * 3600 / seconds) : null;
+  document.querySelector("#timer-display").textContent = formatDuration(seconds, true);
+  document.querySelector("#timer-hourly").textContent = hourly === null
+    ? "Starte den Timer oder ergänze Minuten."
+    : `${euroFormatter.format(hourly / 100)} pro Stunde`;
+  const toggle = document.querySelector("#timer-toggle");
+  toggle.textContent = running ? "Timer stoppen" : "Timer starten";
+  toggle.classList.toggle("danger", running);
+  document.querySelector("#timer-minus").disabled = seconds < 900 || running;
+}
+
+function renderPresets() {
+  const list = document.querySelector("#preset-list");
+  list.replaceChildren();
+  if (!state.presets.length) {
+    list.innerHTML = "<p>Erfasse einen typischen Arbeitstag und speichere ihn als Vorlage.</p>";
+    return;
+  }
+  for (const preset of state.presets) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "preset-chip";
+    button.innerHTML = `<strong>${escapeHTML(preset.title)}</strong><span>${Object.values(preset.counts).reduce((sum, value) => sum + value, 0)} Aufträge</span>`;
+    button.addEventListener("click", () => applyPreset(preset));
+    list.append(button);
+  }
+}
+
+function renderPresetManagement() {
+  const list = document.querySelector("#preset-management");
+  list.replaceChildren();
+  if (!state.presets.length) {
+    list.innerHTML = "<p>Noch keine Schnellvorlagen gespeichert.</p>";
+    return;
+  }
+  for (const preset of state.presets) {
+    const row = document.createElement("div");
+    row.className = "management-row";
+    row.innerHTML = `<span><strong>${escapeHTML(preset.title)}</strong><small>${Object.values(preset.counts).reduce((sum, value) => sum + value, 0)} Aufträge</small></span><button type="button" aria-label="${escapeHTML(preset.title)} löschen">Löschen</button>`;
+    row.querySelector("button").addEventListener("click", () => {
+      state.presets = state.presets.filter(item => item.id !== preset.id);
+      saveState(); renderPresets(); renderPresetManagement();
+    });
+    list.append(row);
+  }
+}
+
+function renderTasks() {
+  const categorySelect = document.querySelector("#task-category");
+  if (!categorySelect.options?.length) {
+    categorySelect.innerHTML = categories.map(category => `<option value="${category.id}">${category.title}</option>`).join("");
+  }
+  const due = document.querySelector("#task-due");
+  if (!due.value) due.value = state.selectedDate;
+  const tasks = state.tasks.filter(task => !task.isCompleted).sort((a, b) => a.dueDateKey.localeCompare(b.dueDateKey));
+  document.querySelector("#task-open-count").textContent = `${tasks.length} offen`;
+  const list = document.querySelector("#task-list");
+  list.replaceChildren();
+  if (!tasks.length) {
+    list.innerHTML = "<p class=\"share-hint\">Keine offenen Aufträge. Neue Lieferungen kannst du unten mit Frist vormerken.</p>";
+    return;
+  }
+  for (const task of tasks) {
+    const category = categories.find(item => item.id === task.categoryID);
+    const row = document.createElement("div");
+    row.className = `task-row${task.dueDateKey < dayKey(new Date()) ? " overdue" : ""}`;
+    row.innerHTML = `<div><strong>${escapeHTML(task.title)}</strong><span>${task.count} × ${escapeHTML(category?.title || task.categoryID)} · fällig ${numericDate(task.dueDateKey)}</span></div><div><button class="task-apply" type="button">Übernehmen</button><button class="task-delete" type="button" aria-label="Auftrag löschen">×</button></div>`;
+    row.querySelector(".task-apply").addEventListener("click", () => applyTask(task));
+    row.querySelector(".task-delete").addEventListener("click", () => deleteTask(task.id));
+    list.append(row);
   }
 }
 
@@ -477,13 +920,41 @@ function renderHistory() {
 function renderDashboard(keys) {
   const favorite = document.querySelector("#history-favorite");
   const chart = document.querySelector("#history-chart");
-  const categoryTotals = categories.map(category => ({ category, count: keys.reduce((sum, key) => sum + countFor(key, category.id), 0) })).sort((left, right) => right.count - left.count);
+  const categoryTotals = categories.map(category => ({
+    category,
+    count: keys.reduce((sum, key) => sum + countFor(key, category.id), 0)
+  })).sort((left, right) => right.count - left.count);
   const winner = categoryTotals[0];
-  favorite.innerHTML = winner?.count ? `<span class="category-icon" style="--accent:${winner.category.accent};--accent-rgb:${winner.category.accentRGB}"><svg><use href="#${winner.category.icon}"></use></svg></span><div><small>Am häufigsten</small><strong>${winner.category.title}</strong><span>${winner.count} Aufträge</span></div>` : `<p>Noch keine Statistik verfügbar.</p>`;
+  favorite.innerHTML = winner?.count
+    ? `<span class="category-icon" style="--accent:${winner.category.accent};--accent-rgb:${winner.category.accentRGB}"><svg><use href="#${winner.category.icon}"></use></svg></span><div><small>Am häufigsten</small><strong>${winner.category.title}</strong><span>${winner.count} Aufträge</span></div>`
+    : `<p>Noch keine Statistik verfügbar.</p>`;
+
   const months = [...new Set(keys.map(key => key.slice(0, 7)))].sort().slice(-6);
-  const values = months.map(key => ({ key, label: new Intl.DateTimeFormat("de-AT", { month: "short" }).format(new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1, 12)), cents: keys.filter(date => date.startsWith(`${key}-`)).reduce((sum, date) => sum + totalsFor(date).cents, 0) }));
+  const values = months.map(key => ({
+    key,
+    label: new Intl.DateTimeFormat("de-AT", { month: "short" }).format(new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1, 12)),
+    cents: keys.filter(date => date.startsWith(`${key}-`)).reduce((sum, date) => sum + totalsFor(date).cents, 0)
+  }));
   const maximum = Math.max(1, ...values.map(value => value.cents));
-  chart.innerHTML = values.length ? `<div class="chart-title"><strong>Verdienst</strong><span>letzte ${values.length} Monate</span></div><div class="chart-bars">${values.map(value => `<div class="chart-column" title="${value.label}: ${euroFormatter.format(value.cents / 100)}"><span>${euroFormatter.format(value.cents / 100)}</span><i style="height:${Math.max(8, value.cents / maximum * 100)}%"></i><small>${value.label}</small></div>`).join("")}</div>` : "";
+  chart.innerHTML = values.length
+    ? `<div class="chart-title"><strong>Verdienst</strong><span>letzte ${values.length} Monate</span></div><div class="chart-bars">${values.map(value => `<div class="chart-column" title="${value.label}: ${euroFormatter.format(value.cents / 100)}"><span>${euroFormatter.format(value.cents / 100)}</span><i style="height:${Math.max(8, value.cents / maximum * 100)}%"></i><small>${value.label}</small></div>`).join("")}</div>`
+    : "";
+
+  const totalSeconds = Object.values(state.workSeconds || {}).reduce((sum, value) => sum + value, 0);
+  const allCents = keys.reduce((sum, key) => sum + totalsFor(key).cents, 0);
+  document.querySelector("#history-work-time").textContent = formatDuration(totalSeconds);
+  document.querySelector("#history-day-average").textContent = euroFormatter.format((keys.length ? allCents / keys.length : 0) / 100);
+  document.querySelector("#history-hourly-rate").textContent = totalSeconds > 0 ? euroFormatter.format((allCents * 3600 / totalSeconds) / 100) : "–";
+  const currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12);
+  const previousMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1, 12);
+  const currentValue = totalsForMonth(currentMonth).cents;
+  const previousValue = totalsForMonth(previousMonth).cents;
+  const change = previousValue > 0 ? Math.round((currentValue - previousValue) / previousValue * 100) : currentValue > 0 ? 100 : null;
+  document.querySelector("#history-month-change").textContent = change === null ? "–" : `${change >= 0 ? "+" : ""}${change} %`;
+
+  const categoryChart = document.querySelector("#category-chart");
+  const categoryMaximum = Math.max(1, ...categoryTotals.map(item => item.count));
+  categoryChart.innerHTML = categoryTotals.filter(item => item.count > 0).map(item => `<div class="category-bar"><span>${item.category.title}</span><i><b style="width:${item.count / categoryMaximum * 100}%;background:${item.category.accent}"></b></i><strong>${item.count}</strong></div>`).join("") || "<p>Noch keine Aufträge.</p>";
 }
 
 function renderMonthReminder() {
@@ -493,15 +964,26 @@ function renderMonthReminder() {
   const totals = totalsForMonth(currentMonth);
   const shouldShow = now.getDate() >= 25 && totals.count > 0;
   reminder.hidden = !shouldShow;
-  if (shouldShow) document.querySelector("#month-reminder-text").textContent = `${totals.count} Aufträge und ${euroFormatter.format(totals.cents / 100)} sind bereit für die Abrechnung.`;
+  if (shouldShow) {
+    document.querySelector("#month-reminder-text").textContent = `${totals.count} Aufträge und ${euroFormatter.format(totals.cents / 100)} sind bereit für die Abrechnung.`;
+  }
 }
 
 function copyLatestWorkday() {
-  const source = Object.keys(state.entries).filter(key => key !== state.selectedDate && totalsFor(key).count > 0).sort().reverse()[0];
-  if (!source) { showToast("Noch kein früherer Arbeitstag zum Kopieren vorhanden."); return; }
+  const source = Object.keys(state.entries)
+    .filter(key => key !== state.selectedDate && totalsFor(key).count > 0)
+    .sort()
+    .reverse()[0];
+  if (!source) {
+    showToast("Noch kein früherer Arbeitstag zum Kopieren vorhanden.");
+    return;
+  }
   state.entries[state.selectedDate] = { ...state.entries[source] };
   state.entryRates[state.selectedDate] = { ...(state.entryRates[source] || {}) };
-  saveState(); renderAll(); haptic("success"); showToast("Letzten Arbeitstag übernommen");
+  saveState();
+  renderAll();
+  haptic("success");
+  showToast("Letzten Arbeitstag übernommen");
 }
 
 function renderPreferences() {
@@ -510,7 +992,25 @@ function renderPreferences() {
   document.querySelector("#privacy-values").checked = preferences.hideAmounts;
   if (document.documentElement) document.documentElement.dataset.theme = preferences.theme;
   document.body.classList.toggle("privacy-values", preferences.hideAmounts);
-  document.querySelector('meta[name="theme-color"]').content = preferences.theme === "dark" ? "#09121f" : "#073b66";
+  const themeColor = preferences.theme === "dark" ? "#09121f" : "#073b66";
+  document.querySelector('meta[name="theme-color"]').content = themeColor;
+}
+
+function renderSyncSettings() {
+  document.querySelector("#sync-url").value = state.sync.url || "";
+  document.querySelector("#sync-token").value = state.sync.token || "";
+  document.querySelector("#sync-auto").checked = state.sync.auto === true;
+  renderSyncStatus();
+}
+
+function renderSyncStatus() {
+  const status = document.querySelector("#sync-status");
+  if (!state.sync.lastSync) {
+    status.textContent = "Noch nicht synchronisiert. Token und Daten bleiben lokal in diesem Browser.";
+    return;
+  }
+  const date = new Date(state.sync.lastSync);
+  status.textContent = `Letzter erfolgreicher Abgleich: ${date.toLocaleString("de-AT")}`;
 }
 
 function renderInvoice() {
@@ -536,6 +1036,29 @@ function renderInvoice() {
   });
   document.querySelector("#invoice-empty").hidden = rows.length > 0;
   document.querySelector(".invoice-table-wrap").hidden = rows.length === 0;
+  renderInvoiceArchive();
+}
+
+function renderInvoiceArchive() {
+  const current = state.invoices.find(item => item.monthKey === monthKey(invoiceMonth));
+  const status = document.querySelector("#invoice-status");
+  status.disabled = !current;
+  status.value = current?.status || "draft";
+  document.querySelector("#archive-invoice").textContent = current ? `Honorarnote ${current.number} aktualisieren` : "Monat archivieren";
+  const list = document.querySelector("#invoice-archive-list");
+  list.replaceChildren();
+  if (!state.invoices.length) {
+    list.innerHTML = "<p class=\"share-hint\">Noch keine Monatsabrechnung archiviert.</p>";
+    return;
+  }
+  const titles = { draft: "Entwurf", sent: "Versendet", paid: "Bezahlt" };
+  for (const record of state.invoices.slice(0, 8)) {
+    const row = document.createElement("div");
+    row.className = `archive-row status-${record.status}`;
+    const date = new Date(Number(record.monthKey.slice(0, 4)), Number(record.monthKey.slice(5, 7)) - 1, 1, 12);
+    row.innerHTML = `<span><i></i><strong>${monthFormatter.format(date)}</strong><small>Nr. ${escapeHTML(record.number)} · ${record.totalCount} Aufträge</small></span><span><em>${titles[record.status]}</em><b>${euroFormatter.format(record.totalCents / 100)}</b></span>`;
+    list.append(row);
+  }
 }
 
 function renderInvoiceProfile() {
@@ -545,10 +1068,13 @@ function renderInvoiceProfile() {
     recipient: "#invoice-recipient",
     recipientAddress: "#invoice-recipient-address",
     senderName: "#invoice-sender-name",
+    senderAddress: "#invoice-sender-address",
     city: "#invoice-city",
     bank: "#invoice-bank",
     iban: "#invoice-iban",
-    bic: "#invoice-bic"
+    bic: "#invoice-bic",
+    taxNote: "#invoice-tax-note",
+    paymentDueDays: "#invoice-payment-days"
   };
   for (const [key, selector] of Object.entries(fieldMap)) {
     document.querySelector(selector).value = state.invoiceProfile[key] ?? "";
@@ -601,6 +1127,16 @@ function switchPage(target) {
 
 document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => switchPage(item.dataset.target)));
 document.querySelector("#copy-last-day").addEventListener("click", copyLatestWorkday);
+document.querySelector("#timer-toggle").addEventListener("click", toggleTimer);
+document.querySelector("#timer-plus").addEventListener("click", () => addWorkMinutes(15));
+document.querySelector("#timer-minus").addEventListener("click", () => addWorkMinutes(-15));
+document.querySelector("#save-preset").addEventListener("click", saveCurrentPreset);
+document.querySelector("#task-form").addEventListener("submit", addPlannedTask);
+document.querySelector("#archive-invoice").addEventListener("click", () => archiveInvoice(invoiceMonth));
+document.querySelector("#invoice-status").addEventListener("change", event => {
+  const record = state.invoices.find(item => item.monthKey === monthKey(invoiceMonth));
+  if (record) updateInvoiceStatus(record, event.target.value);
+});
 document.querySelector("#previous-month").addEventListener("click", () => {
   visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1, 12);
   renderCalendar();
@@ -625,20 +1161,48 @@ const invoiceFieldMap = {
   recipient: "#invoice-recipient",
   recipientAddress: "#invoice-recipient-address",
   senderName: "#invoice-sender-name",
+  senderAddress: "#invoice-sender-address",
   city: "#invoice-city",
   bank: "#invoice-bank",
   iban: "#invoice-iban",
-  bic: "#invoice-bic"
+  bic: "#invoice-bic",
+  taxNote: "#invoice-tax-note",
+  paymentDueDays: "#invoice-payment-days"
 };
 for (const [key, selector] of Object.entries(invoiceFieldMap)) {
   document.querySelector(selector).addEventListener("input", event => {
-    state.invoiceProfile[key] = event.target.value.slice(0, 300);
+    state.invoiceProfile[key] = key === "paymentDueDays"
+      ? Math.max(0, Math.min(90, Math.round(Number(event.target.value) || 0)))
+      : event.target.value.slice(0, 300);
     saveState();
   });
 }
 
-document.querySelector("#theme-select").addEventListener("change", event => { state.preferences.theme = event.target.value; saveState(); renderPreferences(); });
-document.querySelector("#privacy-values").addEventListener("change", event => { state.preferences.hideAmounts = event.target.checked; saveState(); renderPreferences(); });
+document.querySelector("#theme-select").addEventListener("change", event => {
+  state.preferences.theme = event.target.value;
+  saveState();
+  renderPreferences();
+});
+document.querySelector("#privacy-values").addEventListener("change", event => {
+  state.preferences.hideAmounts = event.target.checked;
+  saveState();
+  renderPreferences();
+});
+document.querySelector("#sync-url").addEventListener("change", event => {
+  state.sync.url = event.target.value.trim().slice(0, 500);
+  saveState();
+});
+document.querySelector("#sync-token").addEventListener("change", event => {
+  state.sync.token = event.target.value.slice(0, 500);
+  saveState();
+});
+document.querySelector("#sync-auto").addEventListener("change", event => {
+  state.sync.auto = event.target.checked;
+  saveState();
+  if (state.sync.auto) uploadCloudBackup(false);
+});
+document.querySelector("#sync-upload").addEventListener("click", () => uploadCloudBackup(false));
+document.querySelector("#sync-download").addEventListener("click", downloadCloudBackup);
 
 document.querySelector("#reset-rates").addEventListener("click", () => {
   if (!confirm("Alle Honorare auf die sechs Vertragspreise zurücksetzen?")) return;
@@ -649,7 +1213,7 @@ document.querySelector("#reset-rates").addEventListener("click", () => {
 });
 
 document.querySelector("#export-data").addEventListener("click", () => {
-  const exportObject = { version: 3, exportedAt: new Date().toISOString(), rates: state.rates, entries: state.entries, entryRates: state.entryRates, invoiceProfile: state.invoiceProfile };
+  const exportObject = portableBackup();
   const blob = new Blob([JSON.stringify(exportObject, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -665,22 +1229,24 @@ document.querySelector("#import-file").addEventListener("change", async event =>
   if (!file) return;
   try {
     const imported = JSON.parse(await file.text());
-    const nextState = defaultState();
-    nextState.entries = sanitizeEntries(imported.entries);
-    for (const category of categories) {
-      const rate = Number(imported.rates?.[category.id]);
-      if (Number.isFinite(rate) && rate >= 0) nextState.rates[category.id] = Math.round(rate);
-    }
-    nextState.entryRates = sanitizeEntryRates(imported.entryRates, nextState.entries, nextState.rates);
-    nextState.invoiceProfile = sanitizeInvoiceProfile(imported.invoiceProfile);
     if (!confirm("Aktuelle Daten durch diese Sicherung ersetzen?")) return;
-    nextState.selectedDate = state.selectedDate;
-    state = nextState;
-    saveState();
-    renderAll();
+    applyImportedBackup(imported, true);
     showToast("Datensicherung wiederhergestellt");
   } catch {
     showToast("Diese Sicherungsdatei ist ungültig.");
+  } finally {
+    event.target.value = "";
+  }
+});
+
+document.querySelector("#csv-import-file").addEventListener("change", async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const imported = importCSVText(await file.text());
+    showToast(imported ? `${imported} CSV-Zeilen importiert` : "Keine gültigen CSV-Zeilen gefunden");
+  } catch {
+    showToast("CSV-Datei konnte nicht gelesen werden.");
   } finally {
     event.target.value = "";
   }
@@ -698,35 +1264,48 @@ function downloadBlob(blob, filename) {
 }
 
 document.querySelector("#download-word").addEventListener("click", () => {
+  archiveInvoice(invoiceMonth, true);
   const files = monthlyReportFiles();
   downloadBlob(files.wordBlob, files.wordFile.name);
   showToast("Word-Abrechnung erstellt");
 });
 
 document.querySelector("#download-excel").addEventListener("click", () => {
+  archiveInvoice(invoiceMonth, true);
   const files = monthlyReportFiles();
   downloadBlob(files.excelBlob, files.excelFile.name);
   showToast("Excel-Liste erstellt");
 });
 
 document.querySelector("#print-pdf").addEventListener("click", () => {
+  archiveInvoice(invoiceMonth, true);
   const printWindow = window.open("", "_blank");
-  if (!printWindow) { showToast("PDF-Fenster wurde blockiert. Bitte Pop-ups erlauben."); return; }
-  printWindow.document.open(); printWindow.document.write(buildWordDocument()); printWindow.document.close();
-  window.setTimeout(() => { printWindow.focus(); printWindow.print(); }, 450);
+  if (!printWindow) {
+    showToast("PDF-Fenster wurde blockiert. Bitte Pop-ups erlauben.");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(buildWordDocument());
+  printWindow.document.close();
+  window.setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 450);
 });
 
 document.querySelector("#share-invoice").addEventListener("click", async () => {
+  const archivedRecord = archiveInvoice(invoiceMonth, true);
   const files = monthlyReportFiles();
   const monthName = monthFormatter.format(invoiceMonth);
   const totals = totalsForMonth(invoiceMonth);
-  const subject = `Honorarnote ${state.invoiceProfile.number || "1"}/${invoiceMonth.getFullYear()} – ${monthName}`;
+  const subject = `Honorarnote ${archivedRecord?.number || state.invoiceProfile.number || "1"}/${invoiceMonth.getFullYear()} – ${monthName}`;
   const message = `Guten Tag,\n\nim Anhang sende ich meine Honorarabrechnung für ${monthName}. Gesamt brutto: ${euroFormatter.format(totals.cents / 100)}.\n\nMit freundlichen Grüßen\n${state.invoiceProfile.senderName}`;
   const shareFiles = [files.wordFile, files.excelFile];
 
   try {
     if (navigator.share && (!navigator.canShare || navigator.canShare({ files: shareFiles }))) {
       await navigator.share({ title: subject, text: message, files: shareFiles });
+      if (archivedRecord) updateInvoiceStatus(archivedRecord, "sent");
       showToast("Abrechnung zum Teilen bereitgestellt");
       return;
     }
@@ -920,4 +1499,16 @@ function showToast(message) {
 
 buildCalculator();
 renderCalculatorDisplay();
+ensureMonthlyArchives();
 renderAll();
+if (typeof window.setInterval === "function") {
+  window.setInterval(() => {
+    if (state.activeTimer) renderTimer();
+  }, 1000);
+}
+
+const launchAction = typeof URLSearchParams === "function" ? new URLSearchParams(window.location.search || "").get("action") : null;
+if (launchAction === "add-a1") {
+  setCount(state.selectedDate, "a1-writing", countFor(state.selectedDate, "a1-writing") + 1);
+  showToast("1 A1-Auftrag hinzugefügt");
+}
