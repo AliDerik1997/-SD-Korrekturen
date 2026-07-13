@@ -31,6 +31,8 @@ function defaultState() {
   return {
     rates: Object.fromEntries(categories.map(category => [category.id, category.defaultRate])),
     entries: {},
+    entryRates: {},
+    preferences: { theme: "system", hideAmounts: false },
     selectedDate: dayKey(new Date()),
     invoiceProfile: defaultInvoiceProfile()
   };
@@ -69,8 +71,11 @@ function loadState() {
       if (Number.isFinite(rate) && rate >= 0) fresh.rates[category.id] = Math.round(rate);
     }
     fresh.entries = sanitizeEntries(saved.entries);
+    fresh.entryRates = sanitizeEntryRates(saved.entryRates, fresh.entries, fresh.rates);
     if (/^\d{4}-\d{2}-\d{2}$/.test(saved.selectedDate || "")) fresh.selectedDate = saved.selectedDate;
     fresh.invoiceProfile = sanitizeInvoiceProfile(saved.invoiceProfile);
+    if (["system", "light", "dark"].includes(saved.preferences?.theme)) fresh.preferences.theme = saved.preferences.theme;
+    fresh.preferences.hideAmounts = saved.preferences?.hideAmounts === true;
     return fresh;
   } catch {
     return defaultState();
@@ -88,6 +93,22 @@ function sanitizeEntries(entries) {
       if (Number.isFinite(count) && count > 0) cleanCounts[category.id] = Math.floor(count);
     }
     if (Object.keys(cleanCounts).length) clean[date] = cleanCounts;
+  }
+  return clean;
+}
+
+function sanitizeEntryRates(entryRates, entries, rates) {
+  const clean = {};
+  for (const [date, counts] of Object.entries(entries)) {
+    const dayRates = {};
+    for (const category of categories) {
+      if (!(counts[category.id] > 0)) continue;
+      const savedRate = Number(entryRates?.[date]?.[category.id]);
+      dayRates[category.id] = Number.isFinite(savedRate) && savedRate >= 0
+        ? Math.round(savedRate)
+        : rates[category.id] ?? category.defaultRate;
+    }
+    if (Object.keys(dayRates).length) clean[date] = dayRates;
   }
   return clean;
 }
@@ -131,6 +152,13 @@ function rateFor(categoryId) {
   return state.rates[categoryId] ?? categories.find(category => category.id === categoryId)?.defaultRate ?? 0;
 }
 
+function rateForEntry(date, categoryId) {
+  if (countFor(date, categoryId) > 0) {
+    return state.entryRates?.[date]?.[categoryId] ?? rateFor(categoryId);
+  }
+  return rateFor(categoryId);
+}
+
 function countFor(date, categoryId) {
   return state.entries[date]?.[categoryId] ?? 0;
 }
@@ -140,7 +168,7 @@ function totalsFor(date) {
   return categories.reduce((total, category) => {
     const count = counts[category.id] ?? 0;
     total.count += count;
-    total.cents += count * rateFor(category.id);
+    total.cents += count * rateForEntry(date, category.id);
     return total;
   }, { count: 0, cents: 0 });
 }
@@ -160,8 +188,8 @@ function rowsForMonth(monthDate) {
         date,
         category,
         count,
-        rateCents: rateFor(category.id),
-        amountCents: count * rateFor(category.id)
+        rateCents: rateForEntry(date, category.id),
+        amountCents: count * rateForEntry(date, category.id)
       });
     }
   }
@@ -290,10 +318,23 @@ function monthlyReportFiles() {
 
 function setCount(date, categoryId, nextCount) {
   const safeCount = Math.max(0, Math.floor(nextCount));
+  const previousCount = countFor(date, categoryId);
   if (!state.entries[date]) state.entries[date] = {};
-  if (safeCount === 0) delete state.entries[date][categoryId];
-  else state.entries[date][categoryId] = safeCount;
-  if (!Object.keys(state.entries[date]).length) delete state.entries[date];
+  if (!state.entryRates) state.entryRates = {};
+  if (!state.entryRates[date]) state.entryRates[date] = {};
+  if (safeCount === 0) {
+    delete state.entries[date][categoryId];
+    delete state.entryRates[date][categoryId];
+  } else {
+    state.entries[date][categoryId] = safeCount;
+    if (previousCount === 0 || state.entryRates[date][categoryId] === undefined) {
+      state.entryRates[date][categoryId] = rateFor(categoryId);
+    }
+  }
+  if (!Object.keys(state.entries[date]).length) {
+    delete state.entries[date];
+    delete state.entryRates[date];
+  }
   saveState();
   renderWorkday();
   renderCalendar();
@@ -310,6 +351,7 @@ function renderAll() {
   renderCalculatorDay();
   renderInvoice();
   renderInvoiceProfile();
+  renderPreferences();
 }
 
 function renderCalendar() {
@@ -362,11 +404,13 @@ function renderWorkday() {
   document.querySelector("#today-earnings").textContent = euroFormatter.format(totals.cents / 100);
   document.querySelector("#today-count").textContent = String(totals.count);
   document.querySelector("#selected-date-label").textContent = shortDayFormatter.format(dateFromKey(state.selectedDate));
+  renderMonthReminder();
 
   const list = document.querySelector("#counter-list");
   list.replaceChildren();
   for (const category of categories) {
     const count = countFor(state.selectedDate, category.id);
+    const effectiveRate = rateForEntry(state.selectedDate, category.id);
     const card = document.createElement("article");
     card.className = `counter-card card${count ? " has-count" : ""}`;
     card.style.cssText = `--accent:${category.accent};--accent-rgb:${category.accentRGB}`;
@@ -374,9 +418,9 @@ function renderWorkday() {
       <div class="counter-main">
         <span class="category-icon" aria-hidden="true"><svg><use href="#${category.icon}"></use></svg></span>
         <div class="counter-info">
-          <div class="counter-title"><h3>${category.title}</h3><span class="rate-badge">${euroFormatter.format(rateFor(category.id) / 100)}</span></div>
+          <div class="counter-title"><h3>${category.title}</h3><span class="rate-badge">${euroFormatter.format(effectiveRate / 100)}</span></div>
           <p>${category.detail}</p>
-          ${count ? `<p class="subtotal">${euroFormatter.format(count * rateFor(category.id) / 100)}</p>` : ""}
+          ${count ? `<p class="subtotal">${euroFormatter.format(count * effectiveRate / 100)}</p>` : ""}
         </div>
       </div>
       <div class="stepper">
@@ -400,6 +444,7 @@ function renderHistory() {
   }, { count: 0, cents: 0 });
   document.querySelector("#history-total-count").textContent = String(grandTotal.count);
   document.querySelector("#history-total-earnings").textContent = euroFormatter.format(grandTotal.cents / 100);
+  renderDashboard(keys);
 
   const list = document.querySelector("#history-list");
   list.replaceChildren();
@@ -416,7 +461,8 @@ function renderHistory() {
       .filter(category => countFor(key, category.id) > 0)
       .map(category => {
         const count = countFor(key, category.id);
-        return `<div class="history-detail-row"><span>${category.title}</span><span>${count} × ${euroFormatter.format(rateFor(category.id) / 100)} = ${euroFormatter.format(count * rateFor(category.id) / 100)}</span></div>`;
+        const rate = rateForEntry(key, category.id);
+        return `<div class="history-detail-row"><span>${category.title}</span><span>${count} × ${euroFormatter.format(rate / 100)} = ${euroFormatter.format(count * rate / 100)}</span></div>`;
       }).join("");
     details.innerHTML = `
       <summary class="history-summary">
@@ -426,6 +472,45 @@ function renderHistory() {
       <div class="history-details">${rows}</div>`;
     list.append(details);
   }
+}
+
+function renderDashboard(keys) {
+  const favorite = document.querySelector("#history-favorite");
+  const chart = document.querySelector("#history-chart");
+  const categoryTotals = categories.map(category => ({ category, count: keys.reduce((sum, key) => sum + countFor(key, category.id), 0) })).sort((left, right) => right.count - left.count);
+  const winner = categoryTotals[0];
+  favorite.innerHTML = winner?.count ? `<span class="category-icon" style="--accent:${winner.category.accent};--accent-rgb:${winner.category.accentRGB}"><svg><use href="#${winner.category.icon}"></use></svg></span><div><small>Am häufigsten</small><strong>${winner.category.title}</strong><span>${winner.count} Aufträge</span></div>` : `<p>Noch keine Statistik verfügbar.</p>`;
+  const months = [...new Set(keys.map(key => key.slice(0, 7)))].sort().slice(-6);
+  const values = months.map(key => ({ key, label: new Intl.DateTimeFormat("de-AT", { month: "short" }).format(new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1, 12)), cents: keys.filter(date => date.startsWith(`${key}-`)).reduce((sum, date) => sum + totalsFor(date).cents, 0) }));
+  const maximum = Math.max(1, ...values.map(value => value.cents));
+  chart.innerHTML = values.length ? `<div class="chart-title"><strong>Verdienst</strong><span>letzte ${values.length} Monate</span></div><div class="chart-bars">${values.map(value => `<div class="chart-column" title="${value.label}: ${euroFormatter.format(value.cents / 100)}"><span>${euroFormatter.format(value.cents / 100)}</span><i style="height:${Math.max(8, value.cents / maximum * 100)}%"></i><small>${value.label}</small></div>`).join("")}</div>` : "";
+}
+
+function renderMonthReminder() {
+  const reminder = document.querySelector("#month-reminder");
+  const now = new Date();
+  const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1, 12);
+  const totals = totalsForMonth(currentMonth);
+  const shouldShow = now.getDate() >= 25 && totals.count > 0;
+  reminder.hidden = !shouldShow;
+  if (shouldShow) document.querySelector("#month-reminder-text").textContent = `${totals.count} Aufträge und ${euroFormatter.format(totals.cents / 100)} sind bereit für die Abrechnung.`;
+}
+
+function copyLatestWorkday() {
+  const source = Object.keys(state.entries).filter(key => key !== state.selectedDate && totalsFor(key).count > 0).sort().reverse()[0];
+  if (!source) { showToast("Noch kein früherer Arbeitstag zum Kopieren vorhanden."); return; }
+  state.entries[state.selectedDate] = { ...state.entries[source] };
+  state.entryRates[state.selectedDate] = { ...(state.entryRates[source] || {}) };
+  saveState(); renderAll(); haptic("success"); showToast("Letzten Arbeitstag übernommen");
+}
+
+function renderPreferences() {
+  const preferences = state.preferences || { theme: "system", hideAmounts: false };
+  document.querySelector("#theme-select").value = preferences.theme;
+  document.querySelector("#privacy-values").checked = preferences.hideAmounts;
+  if (document.documentElement) document.documentElement.dataset.theme = preferences.theme;
+  document.body.classList.toggle("privacy-values", preferences.hideAmounts);
+  document.querySelector('meta[name="theme-color"]').content = preferences.theme === "dark" ? "#09121f" : "#073b66";
 }
 
 function renderInvoice() {
@@ -515,6 +600,7 @@ function switchPage(target) {
 }
 
 document.querySelectorAll(".nav-item").forEach(item => item.addEventListener("click", () => switchPage(item.dataset.target)));
+document.querySelector("#copy-last-day").addEventListener("click", copyLatestWorkday);
 document.querySelector("#previous-month").addEventListener("click", () => {
   visibleMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1, 12);
   renderCalendar();
@@ -551,6 +637,9 @@ for (const [key, selector] of Object.entries(invoiceFieldMap)) {
   });
 }
 
+document.querySelector("#theme-select").addEventListener("change", event => { state.preferences.theme = event.target.value; saveState(); renderPreferences(); });
+document.querySelector("#privacy-values").addEventListener("change", event => { state.preferences.hideAmounts = event.target.checked; saveState(); renderPreferences(); });
+
 document.querySelector("#reset-rates").addEventListener("click", () => {
   if (!confirm("Alle Honorare auf die sechs Vertragspreise zurücksetzen?")) return;
   state.rates = Object.fromEntries(categories.map(category => [category.id, category.defaultRate]));
@@ -560,7 +649,7 @@ document.querySelector("#reset-rates").addEventListener("click", () => {
 });
 
 document.querySelector("#export-data").addEventListener("click", () => {
-  const exportObject = { version: 2, exportedAt: new Date().toISOString(), rates: state.rates, entries: state.entries, invoiceProfile: state.invoiceProfile };
+  const exportObject = { version: 3, exportedAt: new Date().toISOString(), rates: state.rates, entries: state.entries, entryRates: state.entryRates, invoiceProfile: state.invoiceProfile };
   const blob = new Blob([JSON.stringify(exportObject, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -582,6 +671,7 @@ document.querySelector("#import-file").addEventListener("change", async event =>
       const rate = Number(imported.rates?.[category.id]);
       if (Number.isFinite(rate) && rate >= 0) nextState.rates[category.id] = Math.round(rate);
     }
+    nextState.entryRates = sanitizeEntryRates(imported.entryRates, nextState.entries, nextState.rates);
     nextState.invoiceProfile = sanitizeInvoiceProfile(imported.invoiceProfile);
     if (!confirm("Aktuelle Daten durch diese Sicherung ersetzen?")) return;
     nextState.selectedDate = state.selectedDate;
@@ -617,6 +707,13 @@ document.querySelector("#download-excel").addEventListener("click", () => {
   const files = monthlyReportFiles();
   downloadBlob(files.excelBlob, files.excelFile.name);
   showToast("Excel-Liste erstellt");
+});
+
+document.querySelector("#print-pdf").addEventListener("click", () => {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) { showToast("PDF-Fenster wurde blockiert. Bitte Pop-ups erlauben."); return; }
+  printWindow.document.open(); printWindow.document.write(buildWordDocument()); printWindow.document.close();
+  window.setTimeout(() => { printWindow.focus(); printWindow.print(); }, 450);
 });
 
 document.querySelector("#share-invoice").addEventListener("click", async () => {
