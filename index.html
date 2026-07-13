@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0171b9">
+  <meta name="theme-color" content="#073b66">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="FDN ÖSD">
@@ -15,6 +15,21 @@
   <title>FDN ÖSD</title>
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-today" viewBox="0 0 24 24"><path d="M9 11l2 2 4-4M7 3v3m10-3v3M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm-2 4h18"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2"/></symbol>
+    <symbol id="icon-invoice" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm7 0v5h5M9 13h6m-6 4h6"/></symbol>
+    <symbol id="icon-calculator" viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 4h6M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 6h10m4 0h2M4 12h2m4 0h10M4 18h8m4 0h4M14 4v4M6 10v4m6 2v4"/></symbol>
+    <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3Zm6 10 .8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8L18 13ZM6 14l1.1 2.9L10 18l-2.9 1.1L6 22l-1.1-2.9L2 18l2.9-1.1L6 14Z"/></symbol>
+    <symbol id="icon-a1" viewBox="0 0 24 24"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22V5.5Zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5a3.5 3.5 0 0 1 3.5 3V5.5ZM7 7h1m-1 4h1"/></symbol>
+    <symbol id="icon-a2" viewBox="0 0 24 24"><path d="M4 4h7v16H6a2 2 0 0 1-2-2V4Zm16 0h-7v16h5a2 2 0 0 0 2-2V4ZM7 8h1m-1 4h1m8-4h1m-1 4h1"/></symbol>
+    <symbol id="icon-reading" viewBox="0 0 24 24"><path d="M3 5.5A3.5 3.5 0 0 1 6.5 2H11v17H6.5A3.5 3.5 0 0 0 3 22V5.5Zm18 0A3.5 3.5 0 0 0 17.5 2H13v17h4.5a3.5 3.5 0 0 1 3.5 3V5.5Z"/></symbol>
+    <symbol id="icon-listening" viewBox="0 0 24 24"><path d="M4 13v-2a8 8 0 0 1 16 0v2M4 13h3v7H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 1-2Zm16 0h-3v7h2a2 2 0 0 0 2-2v-3a2 2 0 0 0-1-2Z"/></symbol>
+    <symbol id="icon-writing" viewBox="0 0 24 24"><path d="m4 16-1 5 5-1L19 9l-4-4L4 16Zm9-9 4 4m-9 9h12"/></symbol>
+    <symbol id="icon-b2" viewBox="0 0 24 24"><path d="m2 9 10-5 10 5-10 5L2 9Zm4 3v5c3 2 9 2 12 0v-5m4-3v7"/></symbol>
+    <symbol id="icon-lock" viewBox="0 0 24 24"><path d="M6 10h12v11H6V10Zm3 0V7a3 3 0 0 1 6 0v3m-3 5v2"/></symbol>
+  </svg>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
@@ -32,7 +47,7 @@
     <main>
       <section class="page active" id="page-today" data-page="today">
         <div class="welcome-row">
-          <div class="welcome-mark" aria-hidden="true">✓</div>
+          <div class="welcome-mark" aria-hidden="true"><svg><use href="#icon-today"></use></svg></div>
           <div>
             <h2>Dein Arbeitstag</h2>
             <p>Tag auswählen und Korrekturen erfassen</p>
@@ -53,7 +68,7 @@
         </section>
 
         <section class="summary-card" aria-live="polite">
-          <div class="summary-label"><span>Tagesübersicht</span><span aria-hidden="true">✦</span></div>
+          <div class="summary-label"><span>Tagesübersicht</span><svg aria-hidden="true"><use href="#icon-sparkles"></use></svg></div>
           <div class="summary-values">
             <div><span>Verdienst</span><strong id="today-earnings">0,00 €</strong></div>
             <div class="align-right"><span>Aufträge</span><strong id="today-count">0</strong></div>
@@ -192,18 +207,18 @@
         </section>
 
         <section class="card privacy-card">
-          <div class="privacy-icon" aria-hidden="true">⌾</div>
+          <div class="privacy-icon" aria-hidden="true"><svg><use href="#icon-lock"></use></svg></div>
           <div><h3>Privat und lokal</h3><p>Deine Arbeitsdaten bleiben auf diesem Gerät und werden an keinen Server übertragen.</p></div>
         </section>
       </section>
     </main>
 
     <nav class="bottom-nav" aria-label="Hauptnavigation">
-      <button class="nav-item active" data-target="today"><span>✓</span><small>Heute</small></button>
-      <button class="nav-item" data-target="history"><span>▦</span><small>Verlauf</small></button>
-      <button class="nav-item" data-target="invoice"><span>▤</span><small>Monat</small></button>
-      <button class="nav-item" data-target="calculator"><span>±</span><small>Rechner</small></button>
-      <button class="nav-item" data-target="settings"><span>€</span><small>Honorare</small></button>
+      <button class="nav-item active" data-target="today"><span><svg><use href="#icon-today"></use></svg></span><small>Heute</small></button>
+      <button class="nav-item" data-target="history"><span><svg><use href="#icon-history"></use></svg></span><small>Verlauf</small></button>
+      <button class="nav-item" data-target="invoice"><span><svg><use href="#icon-invoice"></use></svg></span><small>Monat</small></button>
+      <button class="nav-item" data-target="calculator"><span><svg><use href="#icon-calculator"></use></svg></span><small>Rechner</small></button>
+      <button class="nav-item" data-target="settings"><span><svg><use href="#icon-settings"></use></svg></span><small>Honorare</small></button>
     </nav>
   </div>
 
