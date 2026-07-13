@@ -1,9 +1,9 @@
-const cacheName = "fdn-osd-v8";
+const cacheName = "fdn-osd-v9";
 const appFiles = [
   "./",
   "./index.html",
-  "./styles.css?v=8",
-  "./app.js?v=8",
+  "./styles.css?v=9",
+  "./app.js?v=9",
   "./manifest.webmanifest",
   "./icons/osd-logo.svg"
 ];
@@ -22,6 +22,15 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response.ok) caches.open(cacheName).then(cache => cache.put("./index.html", response.clone()));
+        return response;
+      }).catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
       if (response.ok && new URL(event.request.url).origin === self.location.origin) {
