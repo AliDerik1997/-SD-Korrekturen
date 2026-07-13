@@ -1,9 +1,9 @@
-const cacheName = "fdn-osd-v7";
+const cacheName = "fdn-osd-v8";
 const appFiles = [
   "./",
   "./index.html",
-  "./styles.css?v=7",
-  "./app.js?v=7",
+  "./styles.css?v=8",
+  "./app.js?v=8",
   "./manifest.webmanifest",
   "./icons/osd-logo.svg"
 ];
