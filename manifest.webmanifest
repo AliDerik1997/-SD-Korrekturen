@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "ÖSD Korrektur",
+  "short_name": "ÖSD Korrektur",
+  "description": "Private Erfassung von ÖSD-Korrekturaufträgen und Honoraren.",
+  "lang": "de-AT",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3f7fb",
+  "theme_color": "#0171b9",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "icons/osd-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
