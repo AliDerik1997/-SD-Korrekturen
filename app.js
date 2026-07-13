@@ -1,12 +1,12 @@
 "use strict";
 
 const categories = [
-  { id: "a1-writing", title: "A1", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZA1", defaultRate: 450 },
-  { id: "a2-writing", title: "A2", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZA2", defaultRate: 550 },
-  { id: "b1-reading", title: "B1 Lesen", detail: "Auswertung", invoiceLevel: "ZB1 (Lesen)", defaultRate: 50 },
-  { id: "b1-listening", title: "B1 Hören", detail: "Auswertung", invoiceLevel: "ZB1 (LH)", defaultRate: 50 },
-  { id: "b1-writing", title: "B1 Schreiben", detail: "Korrektur und Bewertung", invoiceLevel: "ZB1 (Schreiben)", defaultRate: 1000 },
-  { id: "b2-writing", title: "B2", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZB2", defaultRate: 1500 }
+  { id: "a1-writing", title: "A1", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZA1", defaultRate: 450, icon: "icon-a1", accent: "#42d7c1", accentRGB: "66,215,193" },
+  { id: "a2-writing", title: "A2", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZA2", defaultRate: 550, icon: "icon-a2", accent: "#8b7cf6", accentRGB: "139,124,246" },
+  { id: "b1-reading", title: "B1 Lesen", detail: "Auswertung", invoiceLevel: "ZB1 (Lesen)", defaultRate: 50, icon: "icon-reading", accent: "#ffbd5c", accentRGB: "255,189,92" },
+  { id: "b1-listening", title: "B1 Hören", detail: "Auswertung", invoiceLevel: "ZB1 (LH)", defaultRate: 50, icon: "icon-listening", accent: "#ff7d8b", accentRGB: "255,125,139" },
+  { id: "b1-writing", title: "B1 Schreiben", detail: "Korrektur und Bewertung", invoiceLevel: "ZB1 (Schreiben)", defaultRate: 1000, icon: "icon-writing", accent: "#087bbf", accentRGB: "8,123,191" },
+  { id: "b2-writing", title: "B2", detail: "Schriftliches Prüfungsmodul", invoiceLevel: "ZB2", defaultRate: 1500, icon: "icon-b2", accent: "#073b66", accentRGB: "7,59,102" }
 ];
 
 const storageKey = "osd-korrektur-web-v1";
@@ -97,6 +97,27 @@ let visibleMonth = new Date(dateFromKey(state.selectedDate).getFullYear(), dateF
 let invoiceMonth = new Date(visibleMonth);
 let toastTimer;
 let deferredInstallPrompt = null;
+
+function haptic(strength = "light") {
+  if (!("vibrate" in navigator)) return;
+  const pattern = strength === "success" ? [12, 28, 18] : strength === "medium" ? 18 : 8;
+  navigator.vibrate(pattern);
+}
+
+function pulseElement(element) {
+  if (!element) return;
+  element.classList.remove("haptic-pop");
+  requestAnimationFrame(() => element.classList.add("haptic-pop"));
+  window.setTimeout(() => element.classList.remove("haptic-pop"), 240);
+}
+
+document.body.addEventListener("click", event => {
+  const control = event.target.closest("button, .file-button");
+  if (!control || control.disabled) return;
+  const strength = control.classList.contains("equals") || control.classList.contains("primary-button") ? "medium" : "light";
+  haptic(strength);
+  pulseElement(control);
+}, true);
 
 function saveState() {
   try {
@@ -347,12 +368,16 @@ function renderWorkday() {
   for (const category of categories) {
     const count = countFor(state.selectedDate, category.id);
     const card = document.createElement("article");
-    card.className = "counter-card card";
+    card.className = `counter-card card${count ? " has-count" : ""}`;
+    card.style.cssText = `--accent:${category.accent};--accent-rgb:${category.accentRGB}`;
     card.innerHTML = `
-      <div class="counter-info">
-        <div class="counter-title"><h3>${category.title}</h3><span class="rate-badge">${euroFormatter.format(rateFor(category.id) / 100)}</span></div>
-        <p>${category.detail}</p>
-        ${count ? `<p class="subtotal">${euroFormatter.format(count * rateFor(category.id) / 100)}</p>` : ""}
+      <div class="counter-main">
+        <span class="category-icon" aria-hidden="true"><svg><use href="#${category.icon}"></use></svg></span>
+        <div class="counter-info">
+          <div class="counter-title"><h3>${category.title}</h3><span class="rate-badge">${euroFormatter.format(rateFor(category.id) / 100)}</span></div>
+          <p>${category.detail}</p>
+          ${count ? `<p class="subtotal">${euroFormatter.format(count * rateFor(category.id) / 100)}</p>` : ""}
+        </div>
       </div>
       <div class="stepper">
         <button type="button" class="decrease" aria-label="${category.title}: einen Auftrag entfernen" ${count === 0 ? "disabled" : ""}>−</button>
@@ -473,6 +498,7 @@ function renderRates() {
         return;
       }
       input.value = (rateFor(category.id) / 100).toFixed(2).replace(".", ",");
+      haptic("success");
       showToast("Honorar gespeichert");
     });
     list.append(row);
