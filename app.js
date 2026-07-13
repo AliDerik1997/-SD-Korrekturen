@@ -10,6 +10,7 @@ const categories = [
 ];
 
 const storageKey = "osd-korrektur-web-v1";
+const accountStorageKey = "fdn-osd-account-v1";
 const euroFormatter = new Intl.NumberFormat("de-AT", { style: "currency", currency: "EUR" });
 const monthFormatter = new Intl.DateTimeFormat("de-AT", { month: "long", year: "numeric" });
 const dayFormatter = new Intl.DateTimeFormat("de-AT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -38,6 +39,7 @@ function defaultState() {
     presets: [],
     invoices: [],
     sync: { url: "", token: "", auto: false, lastSync: "" },
+    lastModified: new Date().toISOString(),
     preferences: { theme: "system", hideAmounts: false },
     selectedDate: dayKey(new Date()),
     invoiceProfile: defaultInvoiceProfile()
@@ -88,6 +90,7 @@ function loadState() {
     fresh.presets = sanitizePresets(saved.presets);
     fresh.invoices = sanitizeInvoices(saved.invoices);
     fresh.sync = sanitizeSync(saved.sync);
+    if (!Number.isNaN(Date.parse(saved.lastModified || ""))) fresh.lastModified = saved.lastModified;
     if (/^\d{4}-\d{2}-\d{2}$/.test(saved.selectedDate || "")) fresh.selectedDate = saved.selectedDate;
     fresh.invoiceProfile = sanitizeInvoiceProfile(saved.invoiceProfile);
     if (["system", "light", "dark"].includes(saved.preferences?.theme)) fresh.preferences.theme = saved.preferences.theme;
@@ -160,6 +163,56 @@ function sanitizeSync(sync) {
   };
 }
 
+function defaultAccount() {
+  return {
+    serviceUrl: "",
+    anonKey: "",
+    auto: true,
+    accessToken: "",
+    refreshToken: "",
+    expiresAt: 0,
+    user: null,
+    lastRemoteUpdatedAt: "",
+    lastSync: "",
+    status: ""
+  };
+}
+
+function loadAccount() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(accountStorageKey));
+    const clean = defaultAccount();
+    if (!saved || typeof saved !== "object") return clean;
+    clean.serviceUrl = typeof saved.serviceUrl === "string" ? saved.serviceUrl.slice(0, 500).replace(/\/$/, "") : "";
+    clean.anonKey = typeof saved.anonKey === "string" ? saved.anonKey.slice(0, 1000) : "";
+    clean.auto = saved.auto !== false;
+    clean.accessToken = typeof saved.accessToken === "string" ? saved.accessToken : "";
+    clean.refreshToken = typeof saved.refreshToken === "string" ? saved.refreshToken : "";
+    clean.expiresAt = Number(saved.expiresAt) || 0;
+    if (saved.user && typeof saved.user.id === "string") {
+      clean.user = {
+        id: saved.user.id.slice(0, 100),
+        email: String(saved.user.email || "Apple-/Google-Konto").slice(0, 200),
+        provider: ["apple", "google"].includes(saved.user.provider) ? saved.user.provider : "account"
+      };
+    }
+    clean.lastRemoteUpdatedAt = typeof saved.lastRemoteUpdatedAt === "string" ? saved.lastRemoteUpdatedAt : "";
+    clean.lastSync = typeof saved.lastSync === "string" ? saved.lastSync : "";
+    clean.status = typeof saved.status === "string" ? saved.status.slice(0, 240) : "";
+    return clean;
+  } catch {
+    return defaultAccount();
+  }
+}
+
+function saveAccount() {
+  try {
+    localStorage.setItem(accountStorageKey, JSON.stringify(account));
+  } catch {
+    showToast("Kontoeinstellungen konnten nicht gespeichert werden.");
+  }
+}
+
 function sanitizeEntries(entries) {
   const clean = {};
   if (!entries || typeof entries !== "object") return clean;
@@ -192,11 +245,13 @@ function sanitizeEntryRates(entryRates, entries, rates) {
 }
 
 let state = loadState();
+let account = loadAccount();
 let visibleMonth = new Date(dateFromKey(state.selectedDate).getFullYear(), dateFromKey(state.selectedDate).getMonth(), 1, 12);
 let invoiceMonth = new Date(visibleMonth);
 let toastTimer;
 let deferredInstallPrompt = null;
 let cloudSyncTimer;
+let accountSyncTimer;
 let suppressAutoSync = false;
 
 function haptic(strength = "light") {
@@ -220,7 +275,8 @@ document.body.addEventListener("click", event => {
   pulseElement(control);
 }, true);
 
-function saveState() {
+function saveState(touch = true) {
+  if (touch) state.lastModified = new Date().toISOString();
   try {
     localStorage.setItem(storageKey, JSON.stringify(state));
   } catch {
@@ -229,6 +285,10 @@ function saveState() {
   if (!suppressAutoSync && state.sync?.auto && state.sync?.url) {
     clearTimeout(cloudSyncTimer);
     cloudSyncTimer = setTimeout(() => uploadCloudBackup(true), 1400);
+  }
+  if (!suppressAutoSync && account.auto && account.user?.id) {
+    clearTimeout(accountSyncTimer);
+    accountSyncTimer = setTimeout(() => uploadAccountBackup(true), 1600);
   }
 }
 
@@ -432,8 +492,9 @@ function ensureMonthlyArchives() {
 
 function portableBackup() {
   return {
-    version: 4,
+    version: 5,
     exportedAt: new Date().toISOString(),
+    modifiedAt: state.lastModified,
     rates: state.rates,
     entries: state.entries,
     entryRates: state.entryRates,
@@ -459,6 +520,9 @@ function applyImportedBackup(imported, preserveSync = true) {
   nextState.tasks = sanitizeTasks(imported.tasks);
   nextState.presets = sanitizePresets(imported.presets);
   nextState.invoices = sanitizeInvoices(imported.invoices);
+  nextState.lastModified = !Number.isNaN(Date.parse(imported.modifiedAt || imported.exportedAt || ""))
+    ? (imported.modifiedAt || imported.exportedAt)
+    : new Date().toISOString();
   nextState.preferences = {
     theme: ["system", "light", "dark"].includes(imported.preferences?.theme) ? imported.preferences.theme : state.preferences.theme,
     hideAmounts: imported.preferences?.hideAmounts === true
@@ -467,7 +531,7 @@ function applyImportedBackup(imported, preserveSync = true) {
   if (preserveSync) nextState.sync = state.sync;
   suppressAutoSync = true;
   state = nextState;
-  saveState();
+  saveState(false);
   suppressAutoSync = false;
   ensureMonthlyArchives();
   renderAll();
@@ -517,6 +581,286 @@ function importCSVText(text) {
   return imported;
 }
 
+function validAccountConfiguration() {
+  try {
+    const url = new URL(account.serviceUrl);
+    return url.protocol === "https:" && account.anonKey.length >= 20;
+  } catch {
+    return false;
+  }
+}
+
+function accountEndpoint(path) {
+  return `${account.serviceUrl.replace(/\/$/, "")}${path}`;
+}
+
+function accountProviderTitle(provider) {
+  return provider === "apple" ? "Apple-ID" : provider === "google" ? "Google" : "Cloud-Konto";
+}
+
+function applyAccountSession(session, fallbackProvider = "account") {
+  account.accessToken = String(session.access_token || "");
+  account.refreshToken = String(session.refresh_token || account.refreshToken || "");
+  account.expiresAt = Date.now() + Math.max(60, Number(session.expires_in) || 3600) * 1000;
+  if (session.user?.id) {
+    account.user = {
+      id: String(session.user.id),
+      email: String(session.user.email || "Apple-/Google-Konto"),
+      provider: String(session.user.app_metadata?.provider || fallbackProvider)
+    };
+  }
+  saveAccount();
+}
+
+async function ensureAccountToken() {
+  if (account.accessToken && account.expiresAt > Date.now() + 60_000) return account.accessToken;
+  if (!validAccountConfiguration() || !account.refreshToken) throw new Error("not-signed-in");
+  const response = await fetch(accountEndpoint("/auth/v1/token?grant_type=refresh_token"), {
+    method: "POST",
+    headers: { apikey: account.anonKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: account.refreshToken })
+  });
+  if (!response.ok) {
+    clearAccountSession();
+    throw new Error("session-expired");
+  }
+  applyAccountSession(await response.json(), account.user?.provider);
+  return account.accessToken;
+}
+
+async function loadAccountUser() {
+  const token = await ensureAccountToken();
+  const response = await fetch(accountEndpoint("/auth/v1/user"), {
+    headers: { apikey: account.anonKey, Authorization: `Bearer ${token}` },
+    cache: "no-store"
+  });
+  if (!response.ok) throw new Error("user-unavailable");
+  const user = await response.json();
+  account.user = {
+    id: String(user.id),
+    email: String(user.email || "Apple-/Google-Konto"),
+    provider: String(user.app_metadata?.provider || account.user?.provider || "account")
+  };
+  saveAccount();
+  return account.user;
+}
+
+function beginAccountLogin(provider) {
+  account.serviceUrl = document.querySelector("#account-service-url").value.trim().replace(/\/$/, "").slice(0, 500);
+  account.anonKey = document.querySelector("#account-anon-key").value.trim().slice(0, 1000);
+  saveAccount();
+  if (!validAccountConfiguration()) {
+    document.querySelector(".account-setup").open = true;
+    showToast("Bitte zuerst Cloud-Projektadresse und öffentlichen App-Schlüssel eintragen.");
+    return;
+  }
+  sessionStorage.setItem("fdn-osd-auth-provider", provider);
+  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const url = new URL(accountEndpoint("/auth/v1/authorize"));
+  url.searchParams.set("provider", provider);
+  url.searchParams.set("redirect_to", redirectTo);
+  window.location.assign(url.toString());
+}
+
+async function handleAccountCallback() {
+  if (!window.location.hash.includes("access_token=") && !window.location.hash.includes("error_description=")) return false;
+  const parameters = new URLSearchParams(window.location.hash.slice(1));
+  const authError = parameters.get("error_description");
+  window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+  if (authError) {
+    account.status = `Anmeldung abgebrochen: ${authError}`;
+    saveAccount();
+    renderAccountSettings();
+    return true;
+  }
+  const provider = sessionStorage.getItem("fdn-osd-auth-provider") || "account";
+  applyAccountSession({
+    access_token: parameters.get("access_token"),
+    refresh_token: parameters.get("refresh_token"),
+    expires_in: parameters.get("expires_in")
+  }, provider);
+  await loadAccountUser();
+  await initialAccountSync();
+  return true;
+}
+
+function clearAccountSession() {
+  account.accessToken = "";
+  account.refreshToken = "";
+  account.expiresAt = 0;
+  account.user = null;
+  account.lastRemoteUpdatedAt = "";
+  account.lastSync = "";
+  account.status = "Abgemeldet. Deine lokalen Daten bleiben auf diesem Gerät.";
+  saveAccount();
+  renderAccountSettings();
+}
+
+async function signOutAccount() {
+  try {
+    if (account.accessToken && validAccountConfiguration()) {
+      await fetch(accountEndpoint("/auth/v1/logout"), {
+        method: "POST",
+        headers: { apikey: account.anonKey, Authorization: `Bearer ${account.accessToken}` }
+      });
+    }
+  } catch {
+    // Lokales Abmelden muss auch ohne Netzwerk funktionieren.
+  }
+  clearAccountSession();
+  showToast("Du wurdest abgemeldet");
+}
+
+async function accountFetch(path, options = {}) {
+  const token = await ensureAccountToken();
+  const headers = {
+    apikey: account.anonKey,
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+  return fetch(accountEndpoint(path), { ...options, headers, cache: "no-store" });
+}
+
+async function fetchAccountBackup() {
+  if (!account.user?.id) throw new Error("not-signed-in");
+  const query = new URLSearchParams({ select: "payload,updated_at", user_id: `eq.${account.user.id}`, limit: "1" });
+  const response = await accountFetch(`/rest/v1/fdn_backups?${query}`);
+  if (!response.ok) throw new Error(`backup-read-${response.status}`);
+  return (await response.json())[0] || null;
+}
+
+function localHasMeaningfulData() {
+  const defaults = defaultState();
+  return Object.keys(state.entries).length > 0
+    || Object.keys(state.workSeconds).length > 0
+    || state.tasks.length > 0
+    || state.presets.length > 0
+    || state.invoices.length > 0
+    || JSON.stringify(state.rates) !== JSON.stringify(defaults.rates)
+    || JSON.stringify(state.invoiceProfile) !== JSON.stringify(defaults.invoiceProfile);
+}
+
+function backupFingerprint(backup) {
+  return JSON.stringify({
+    rates: backup.rates,
+    entries: backup.entries,
+    entryRates: backup.entryRates,
+    invoiceProfile: backup.invoiceProfile,
+    workSeconds: backup.workSeconds,
+    tasks: backup.tasks,
+    presets: backup.presets,
+    invoices: backup.invoices,
+    preferences: backup.preferences
+  });
+}
+
+async function uploadAccountBackup(quiet = false, force = false) {
+  if (!account.user?.id) {
+    if (!quiet) showToast("Bitte zuerst mit Apple oder Google anmelden.");
+    return false;
+  }
+  try {
+    const remote = await fetchAccountBackup();
+    const changedElsewhere = remote && (!account.lastRemoteUpdatedAt || remote.updated_at !== account.lastRemoteUpdatedAt)
+      && backupFingerprint(remote.payload) !== backupFingerprint(portableBackup());
+    if (changedElsewhere && !force) {
+      account.status = "Cloud-Daten wurden auf einem anderen Gerät geändert. Bitte zuerst laden oder das Überschreiben bestätigen.";
+      saveAccount();
+      renderAccountSettings();
+      if (quiet) return false;
+      if (!confirm("In der Cloud liegen andere oder neuere Daten. Wirklich mit den lokalen Daten überschreiben?")) return false;
+      return uploadAccountBackup(false, true);
+    }
+    const updatedAt = new Date().toISOString();
+    const response = await accountFetch("/rest/v1/fdn_backups?on_conflict=user_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify({ user_id: account.user.id, payload: portableBackup(), updated_at: updatedAt })
+    });
+    if (!response.ok) throw new Error(`backup-write-${response.status}`);
+    const row = (await response.json())[0];
+    account.lastRemoteUpdatedAt = row?.updated_at || updatedAt;
+    account.lastSync = new Date().toISOString();
+    account.status = "Alle Änderungen wurden sicher im Konto gespeichert.";
+    saveAccount();
+    renderAccountSettings();
+    if (!quiet) showToast("Kontodaten sicher gespeichert");
+    return true;
+  } catch (error) {
+    account.status = error.message === "session-expired"
+      ? "Die Anmeldung ist abgelaufen. Bitte erneut anmelden."
+      : "Kontosynchronisierung fehlgeschlagen. Cloud-Einrichtung und Verbindung prüfen.";
+    saveAccount();
+    renderAccountSettings();
+    if (!quiet) showToast(account.status);
+    return false;
+  }
+}
+
+async function downloadAccountBackup(skipConfirmation = false) {
+  if (!account.user?.id) return showToast("Bitte zuerst mit Apple oder Google anmelden.");
+  try {
+    const remote = await fetchAccountBackup();
+    if (!remote) return showToast("Für dieses Konto gibt es noch keine Sicherung.");
+    if (!skipConfirmation && localHasMeaningfulData() && !confirm("Lokale Daten durch die vollständige Kontosicherung ersetzen?")) return;
+    suppressAutoSync = true;
+    applyImportedBackup(remote.payload, true);
+    suppressAutoSync = false;
+    account.lastRemoteUpdatedAt = remote.updated_at;
+    account.lastSync = new Date().toISOString();
+    account.status = "Die vollständigen Kontodaten wurden unversehrt geladen.";
+    saveAccount();
+    renderAccountSettings();
+    showToast("Kontodaten wiederhergestellt");
+  } catch {
+    suppressAutoSync = false;
+    account.status = "Kontodaten konnten nicht geladen werden.";
+    saveAccount();
+    renderAccountSettings();
+    showToast(account.status);
+  }
+}
+
+async function initialAccountSync() {
+  const remote = await fetchAccountBackup();
+  if (!remote) {
+    await uploadAccountBackup(false, true);
+    return;
+  }
+  account.lastRemoteUpdatedAt = remote.updated_at;
+  if (!localHasMeaningfulData() || backupFingerprint(remote.payload) === backupFingerprint(portableBackup())) {
+    suppressAutoSync = true;
+    applyImportedBackup(remote.payload, true);
+    suppressAutoSync = false;
+    account.lastSync = new Date().toISOString();
+    account.status = "Angemeldet – deine vollständigen Daten wurden automatisch geladen.";
+    saveAccount();
+    renderAccountSettings();
+    return;
+  }
+  if (confirm("Auf diesem Gerät und in der Cloud liegen unterschiedliche Daten. Möchtest du jetzt die Cloud-Daten laden? Deine lokalen Daten werden nur nach deiner Bestätigung ersetzt.")) {
+    await downloadAccountBackup(true);
+  } else {
+    account.status = "Angemeldet. Lokale Daten wurden nicht verändert; entscheide über Laden oder Sichern.";
+    saveAccount();
+    renderAccountSettings();
+  }
+}
+
+async function handleAccountStartup() {
+  try {
+    if (await handleAccountCallback()) return;
+    if (!account.accessToken || !validAccountConfiguration()) return;
+    await loadAccountUser();
+    renderAccountSettings();
+  } catch {
+    account.status = "Die Kontositzung konnte nicht wiederhergestellt werden. Bitte erneut anmelden.";
+    saveAccount();
+    renderAccountSettings();
+  }
+}
+
 function cloudHeaders() {
   const headers = { "Content-Type": "application/json" };
   if (state.sync.token) headers.Authorization = `Bearer ${state.sync.token}`;
@@ -532,7 +876,7 @@ async function uploadCloudBackup(quiet = false) {
     const response = await fetch(state.sync.url, { method: "PUT", headers: cloudHeaders(), body: JSON.stringify(portableBackup()) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     state.sync.lastSync = new Date().toISOString();
-    suppressAutoSync = true; saveState(); suppressAutoSync = false;
+    suppressAutoSync = true; saveState(false); suppressAutoSync = false;
     renderSyncStatus();
     if (!quiet) showToast("Cloud-Sicherung aktualisiert");
   } catch {
@@ -549,7 +893,7 @@ async function downloadCloudBackup() {
     if (!confirm("Lokale Daten durch die Cloud-Sicherung ersetzen?")) return;
     applyImportedBackup(imported, true);
     state.sync.lastSync = new Date().toISOString();
-    suppressAutoSync = true; saveState(); suppressAutoSync = false;
+    suppressAutoSync = true; saveState(false); suppressAutoSync = false;
     showToast("Cloud-Sicherung geladen");
   } catch {
     showToast("Cloud-Sicherung konnte nicht geladen werden.");
@@ -716,6 +1060,7 @@ function renderAll() {
   renderTasks();
   renderInvoiceArchive();
   renderPresetManagement();
+  renderAccountSettings();
   renderSyncSettings();
 }
 
@@ -1003,6 +1348,34 @@ function renderSyncSettings() {
   renderSyncStatus();
 }
 
+function renderAccountSettings() {
+  const signedIn = Boolean(account.user?.id && account.accessToken);
+  document.querySelector("#account-service-url").value = account.serviceUrl || "";
+  document.querySelector("#account-anon-key").value = account.anonKey || "";
+  document.querySelector("#account-auto").checked = account.auto !== false;
+  document.querySelector("#account-signed-out").hidden = signedIn;
+  document.querySelector("#account-signed-in").hidden = !signedIn;
+  document.querySelector("#account-upload").disabled = !signedIn;
+  document.querySelector("#account-download").disabled = !signedIn;
+  document.querySelector("#account-auto").disabled = !signedIn;
+  if (signedIn) {
+    document.querySelector("#account-email").textContent = account.user.email;
+    document.querySelector("#account-provider").textContent = `Angemeldet mit ${accountProviderTitle(account.user.provider)}`;
+    document.querySelector("#account-avatar").textContent = (account.user.email || "A").slice(0, 1).toUpperCase();
+  }
+  const status = document.querySelector("#account-status");
+  status.classList.remove("is-success", "is-warning");
+  if (account.status) {
+    status.textContent = account.status;
+    status.classList.add(account.status.includes("sicher") || account.status.includes("vollständig") || account.status.includes("automatisch") ? "is-success" : "is-warning");
+  } else if (signedIn && account.lastSync) {
+    status.textContent = `Letzter Kontenabgleich: ${new Date(account.lastSync).toLocaleString("de-AT")}`;
+    status.classList.add("is-success");
+  } else {
+    status.textContent = signedIn ? "Angemeldet. Noch keine Kontosicherung vorhanden." : "Noch nicht angemeldet. Deine lokalen Daten bleiben unverändert.";
+  }
+}
+
 function renderSyncStatus() {
   const status = document.querySelector("#sync-status");
   if (!state.sync.lastSync) {
@@ -1188,6 +1561,35 @@ document.querySelector("#privacy-values").addEventListener("change", event => {
   saveState();
   renderPreferences();
 });
+document.querySelector("#account-login-apple").addEventListener("click", () => beginAccountLogin("apple"));
+document.querySelector("#account-login-google").addEventListener("click", () => beginAccountLogin("google"));
+document.querySelector("#account-logout").addEventListener("click", signOutAccount);
+document.querySelector("#account-upload").addEventListener("click", () => uploadAccountBackup(false));
+document.querySelector("#account-download").addEventListener("click", () => downloadAccountBackup(false));
+document.querySelector("#account-auto").addEventListener("change", event => {
+  account.auto = event.target.checked;
+  saveAccount();
+  renderAccountSettings();
+  if (account.auto && account.user?.id) uploadAccountBackup(false);
+});
+for (const [selector, key] of [["#account-service-url", "serviceUrl"], ["#account-anon-key", "anonKey"]]) {
+  document.querySelector(selector).addEventListener("change", event => {
+    const previous = account[key];
+    account[key] = key === "serviceUrl"
+      ? event.target.value.trim().replace(/\/$/, "").slice(0, 500)
+      : event.target.value.trim().slice(0, 1000);
+    if (previous !== account[key] && account.user) {
+      account.accessToken = "";
+      account.refreshToken = "";
+      account.expiresAt = 0;
+      account.user = null;
+      account.lastRemoteUpdatedAt = "";
+      account.status = "Cloud-Einrichtung geändert. Bitte erneut anmelden.";
+    }
+    saveAccount();
+    renderAccountSettings();
+  });
+}
 document.querySelector("#sync-url").addEventListener("change", event => {
   state.sync.url = event.target.value.trim().slice(0, 500);
   saveState();
@@ -1501,6 +1903,7 @@ buildCalculator();
 renderCalculatorDisplay();
 ensureMonthlyArchives();
 renderAll();
+handleAccountStartup();
 if (typeof window.setInterval === "function") {
   window.setInterval(() => {
     if (state.activeTimer) renderTimer();
