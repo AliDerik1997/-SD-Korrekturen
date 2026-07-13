@@ -10,8 +10,8 @@
   <meta name="description" content="Private Erfassung von ÖSD-Korrekturaufträgen und Honoraren.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/osd-logo.svg">
-  <link rel="icon" href="icons/osd-logo.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="icon" href="icons/osd-logo.svg">
+  <link rel="stylesheet" href="styles.css?v=10">
   <title>FDN ÖSD</title>
 </head>
 <body>
@@ -268,8 +268,42 @@
           </div>
         </section>
 
+        <section class="card account-card">
+          <div class="card-heading">
+            <div>
+              <h3>Dein Cloud-Konto</h3>
+              <p>Mit Apple-ID oder Google anmelden und deine Daten auf allen Geräten sicher wiederherstellen.</p>
+            </div>
+            <span class="account-shield" aria-hidden="true">✓</span>
+          </div>
+          <div id="account-signed-out">
+            <div class="account-buttons">
+              <button class="account-button apple-login" id="account-login-apple"><span aria-hidden="true"></span> Mit Apple anmelden</button>
+              <button class="account-button google-login" id="account-login-google"><span aria-hidden="true">G</span> Mit Google anmelden</button>
+            </div>
+          </div>
+          <div id="account-signed-in" class="account-profile" hidden>
+            <span class="account-avatar" id="account-avatar" aria-hidden="true">A</span>
+            <div><strong id="account-email">Angemeldet</strong><small id="account-provider">Cloud-Konto</small></div>
+            <button class="secondary-button compact-button" id="account-logout">Abmelden</button>
+          </div>
+          <label class="preference-row account-auto"><span>Änderungen automatisch sichern</span><input id="account-auto" type="checkbox"></label>
+          <div class="button-row account-sync-actions">
+            <button class="primary-button" id="account-upload">Daten sichern</button>
+            <button class="secondary-button" id="account-download">Daten laden</button>
+          </div>
+          <p class="share-hint account-status" id="account-status">Noch nicht angemeldet. Deine lokalen Daten bleiben unverändert.</p>
+          <details class="account-setup">
+            <summary>Einmalige Cloud-Einrichtung</summary>
+            <p>Die öffentliche Projektadresse und der öffentliche App-Schlüssel verbinden die Anmeldung mit deinem privaten Datenspeicher.</p>
+            <label><span>Cloud-Projektadresse</span><input id="account-service-url" type="url" placeholder="https://…supabase.co" autocomplete="url"></label>
+            <label><span>Öffentlicher App-Schlüssel</span><input id="account-anon-key" type="password" autocomplete="off"></label>
+          </details>
+          <p class="security-note"><span aria-hidden="true">🔒</span> Jedes Konto kann ausschließlich seinen eigenen Datensatz lesen. Anmeldedaten werden nie Teil deiner Exporte.</p>
+        </section>
+
         <section class="card sync-card">
-          <div class="card-heading"><div><h3>Cloud-Synchronisierung</h3><p>Optional mit einer privaten JSON-/WebDAV-Adresse, die GET und PUT erlaubt.</p></div></div>
+          <div class="card-heading"><div><h3>Manuelle Synchronisierung</h3><p>Für fortgeschrittene Nutzung mit einer eigenen JSON-/WebDAV-Adresse.</p></div></div>
           <label><span>Private Sync-Adresse</span><input id="sync-url" type="url" placeholder="https://…/fdn-osd.json"></label>
           <label><span>Zugriffstoken (optional)</span><input id="sync-token" type="password" autocomplete="off"></label>
           <label class="preference-row"><span>Änderungen automatisch hochladen</span><input id="sync-auto" type="checkbox"></label>
@@ -313,6 +347,6 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=9" defer></script>
+  <script src="app.js?v=10" defer></script>
 </body>
 </html>
