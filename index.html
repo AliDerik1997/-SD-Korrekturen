@@ -11,7 +11,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/osd-logo.svg">
   <link rel="icon" href="icons/osd-logo.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=8">
+  <link rel="stylesheet" href="styles.css?v=9">
   <title>FDN ÖSD</title>
 </head>
 <body>
@@ -75,6 +75,33 @@
           </div>
         </section>
 
+        <section class="card timer-card">
+          <div class="productivity-heading"><div><span class="feature-icon">⏱</span><strong>Arbeitszeit</strong></div><strong id="timer-display">00:00:00</strong></div>
+          <p id="timer-hourly">Starte den Timer oder ergänze Minuten.</p>
+          <div class="button-row timer-actions">
+            <button class="primary-button" id="timer-toggle">Timer starten</button>
+            <button class="secondary-button" id="timer-plus">+15 Min.</button>
+            <button class="secondary-button" id="timer-minus">−15 Min.</button>
+          </div>
+        </section>
+
+        <section class="card presets-card">
+          <div class="productivity-heading"><div><span class="feature-icon">⚡️</span><strong>Schnelleingabe</strong></div><button class="text-button" id="save-preset">Tag als Vorlage</button></div>
+          <div class="preset-list" id="preset-list"><p>Noch keine Vorlage gespeichert.</p></div>
+        </section>
+
+        <details class="card tasks-card" open>
+          <summary><strong>Offene Aufträge und Fristen</strong><span id="task-open-count">0 offen</span></summary>
+          <div id="task-list" class="task-list"></div>
+          <form id="task-form" class="task-form">
+            <input id="task-title" placeholder="Bezeichnung" maxlength="80">
+            <select id="task-category" aria-label="Niveau"></select>
+            <input id="task-count" type="number" min="1" max="999" value="1" aria-label="Anzahl">
+            <input id="task-due" type="date" aria-label="Abgabefrist">
+            <button class="secondary-button" type="submit">Auftrag vormerken</button>
+          </form>
+        </details>
+
         <section class="month-reminder card" id="month-reminder" hidden>
           <div class="privacy-icon" aria-hidden="true"><svg><use href="#icon-invoice"></use></svg></div>
           <div><strong>Monatsabschluss vorbereiten</strong><p id="month-reminder-text"></p></div>
@@ -101,6 +128,13 @@
           <div class="dashboard-favorite" id="history-favorite"></div>
           <div class="earnings-chart" id="history-chart" aria-label="Verdienst der letzten Monate"></div>
         </section>
+        <section class="productivity-grid" aria-label="Produktivitätskennzahlen">
+          <div class="card"><span>Arbeitszeit</span><strong id="history-work-time">0 Min.</strong></div>
+          <div class="card"><span>Ø pro Tag</span><strong id="history-day-average">0,00 €</strong></div>
+          <div class="card"><span>Stundenlohn</span><strong id="history-hourly-rate">–</strong></div>
+          <div class="card"><span>Zum Vormonat</span><strong id="history-month-change">–</strong></div>
+        </section>
+        <section class="card category-chart-card"><h3>Aufträge nach Niveau</h3><div id="category-chart" class="category-chart"></div></section>
         <div id="history-list" class="history-list"></div>
       </section>
 
@@ -158,6 +192,12 @@
           <div class="empty-state compact" id="invoice-empty" hidden><strong>Keine Aufträge in diesem Monat</strong>Wähle im Kalender Tage aus und trage Aufträge ein.</div>
         </section>
 
+        <section class="card invoice-archive-card">
+          <div class="card-heading"><div><h3>Rechnungsarchiv</h3><p>Entwurf, Versand und Zahlung dauerhaft nachverfolgen.</p></div></div>
+          <div class="button-row"><button class="secondary-button" id="archive-invoice">Monat archivieren</button><select id="invoice-status" aria-label="Rechnungsstatus"><option value="draft">Entwurf</option><option value="sent">Versendet</option><option value="paid">Bezahlt</option></select></div>
+          <div id="invoice-archive-list" class="invoice-archive-list"></div>
+        </section>
+
         <details class="card invoice-details-card" open>
           <summary><strong>Rechnungs- und E-Mail-Daten</strong><span>Nur lokal gespeichert</span></summary>
           <div class="invoice-form">
@@ -166,10 +206,13 @@
             <label class="full"><span>Empfänger</span><input id="invoice-recipient" autocomplete="organization"></label>
             <label class="full"><span>Empfängeradresse</span><textarea id="invoice-recipient-address" rows="2"></textarea></label>
             <label class="full"><span>Dein Name</span><input id="invoice-sender-name" autocomplete="name" placeholder="Vor- und Nachname"></label>
+            <label class="full"><span>Deine Adresse</span><textarea id="invoice-sender-address" rows="2"></textarea></label>
             <label><span>Ort</span><input id="invoice-city" autocomplete="address-level2" placeholder="Wien"></label>
             <label><span>Bank</span><input id="invoice-bank" autocomplete="off"></label>
             <label class="full"><span>IBAN</span><input id="invoice-iban" autocomplete="off" autocapitalize="characters"></label>
             <label class="full"><span>BIC</span><input id="invoice-bic" autocomplete="off" autocapitalize="characters"></label>
+            <label class="full"><span>Steuerhinweis (optional)</span><textarea id="invoice-tax-note" rows="2"></textarea></label>
+            <label><span>Zahlungsziel in Tagen</span><input id="invoice-payment-days" type="number" min="0" max="90" value="14"></label>
           </div>
         </details>
 
@@ -204,7 +247,7 @@
         </section>
 
         <section class="card preferences-card">
-          <div class="card-heading"><div><h3>Darstellung und Privatsphäre</h3><p>Pass die App an deine Umgebung an.</p></div></div>
+          <div class="card-heading"><div><h3>Darstellung und Privatsphäre</h3><p>Passe die App an deine Umgebung an.</p></div></div>
           <label class="preference-row"><span>Design</span><select id="theme-select"><option value="system">System</option><option value="light">Hell</option><option value="dark">Dunkel</option></select></label>
           <label class="preference-row"><span>Beträge auf dem Bildschirm ausblenden</span><input type="checkbox" id="privacy-values"></label>
         </section>
@@ -220,7 +263,24 @@
             <button class="primary-button" id="export-data">Daten exportieren</button>
             <label class="secondary-button file-button" for="import-file">Daten importieren</label>
             <input type="file" id="import-file" accept="application/json,.json" hidden>
+            <label class="secondary-button file-button" for="csv-import-file">CSV/Excel importieren</label>
+            <input type="file" id="csv-import-file" accept="text/csv,.csv" hidden>
           </div>
+        </section>
+
+        <section class="card sync-card">
+          <div class="card-heading"><div><h3>Cloud-Synchronisierung</h3><p>Optional mit einer privaten JSON-/WebDAV-Adresse, die GET und PUT erlaubt.</p></div></div>
+          <label><span>Private Sync-Adresse</span><input id="sync-url" type="url" placeholder="https://…/fdn-osd.json"></label>
+          <label><span>Zugriffstoken (optional)</span><input id="sync-token" type="password" autocomplete="off"></label>
+          <label class="preference-row"><span>Änderungen automatisch hochladen</span><input id="sync-auto" type="checkbox"></label>
+          <div class="button-row"><button class="primary-button" id="sync-upload">Jetzt hochladen</button><button class="secondary-button" id="sync-download">Cloud laden</button></div>
+          <p class="share-hint" id="sync-status">Noch nicht synchronisiert. Token und Daten bleiben lokal in diesem Browser.</p>
+        </section>
+
+        <section class="card shortcuts-card">
+          <div class="card-heading"><div><h3>Vorlagen, Kurzbefehle und Widget</h3><p>Schneller erfassen – vom App-Symbol oder mit dem iPhone-Widget.</p></div></div>
+          <div id="preset-management" class="preset-management"></div>
+          <p class="share-hint">Die Web-App bietet Startbildschirm-Schnellaktionen. Die native App enthält zusätzlich Siri-Kurzbefehle und eine Widget-Vorlage.</p>
         </section>
 
         <section class="card privacy-card">
@@ -253,6 +313,6 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=8" defer></script>
+  <script src="app.js?v=9" defer></script>
 </body>
 </html>
