@@ -1,4 +1,4 @@
-# ÖSD Korrektur – installierbare Web-App
+# FDN ÖSD – installierbare Web-App
 
 Diese Version läuft als Progressive Web App (PWA) und benötigt keine siebentägige Apple-Signierung.
 
