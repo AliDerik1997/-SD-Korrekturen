@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "ÖSD Korrektur",
-  "short_name": "ÖSD Korrektur",
+  "name": "FDN ÖSD",
+  "short_name": "FDN ÖSD",
   "description": "Private Erfassung von ÖSD-Korrekturaufträgen und Honoraren.",
   "lang": "de-AT",
   "start_url": "./",
