@@ -1,4 +1,4 @@
-const cacheName = "osd-korrektur-v5";
+const cacheName = "fdn-osd-v6";
 const appFiles = [
   "./",
   "./index.html",
