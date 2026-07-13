@@ -11,6 +11,20 @@
   "background_color": "#f4f8ff",
   "theme_color": "#073b66",
   "categories": ["productivity", "business"],
+  "shortcuts": [
+    {
+      "name": "Heute öffnen",
+      "short_name": "Heute",
+      "url": "./?action=today",
+      "icons": [{ "src": "icons/osd-logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Einen A1-Auftrag hinzufügen",
+      "short_name": "+1 A1",
+      "url": "./?action=add-a1",
+      "icons": [{ "src": "icons/osd-logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ],
   "icons": [
     {
       "src": "icons/osd-logo.svg",
