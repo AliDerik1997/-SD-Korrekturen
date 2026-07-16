@@ -1,4 +1,4 @@
-# FDN ÖSD – Apple-/Google-Konto aktivieren
+# FDN ÖSD – Cloud-Konto aktivieren
 
 Die App verwendet ein eigenes Supabase-Projekt als Identitäts- und Datenspeicher. Dadurch sieht jedes angemeldete Konto ausschließlich den eigenen Datensatz.
 
@@ -11,17 +11,21 @@ Die App verwendet ein eigenes Supabase-Projekt als Identitäts- und Datenspeiche
 
 Der öffentliche Schlüssel darf in einer App stehen. Der `service_role`-Schlüssel darf dagegen niemals in die App, in GitHub oder in eine Sicherung kopiert werden.
 
-## 2. Google aktivieren
+## 2. E-Mail-Code aktivieren
+
+Unter **Supabase > Authentication > Providers > Email** den E-Mail-Anbieter aktivieren. Die E-Mail-Vorlage muss den Supabase-Token anzeigen, damit der sechsstellige Code direkt in FDN ÖSD eingegeben werden kann.
+
+## 3. Google aktivieren (optional)
 
 1. In Google Cloud eine OAuth-Webanwendung erstellen.
 2. Die von Supabase angezeigte Callback-URL als autorisierte Weiterleitungs-URL eintragen.
 3. Client-ID und Client-Secret unter **Supabase > Authentication > Providers > Google** hinterlegen und Google aktivieren.
 
-## 3. Apple aktivieren
+## 4. Apple aktivieren (optional)
 
 Für „Mit Apple anmelden“ ist eine Apple-Developer-Mitgliedschaft erforderlich. In Apple Developer eine Services-ID und den Sign-in-with-Apple-Schlüssel anlegen. Die Supabase-Callback-Domain und Callback-URL hinterlegen. Anschließend Services-ID, Team-ID, Key-ID und privaten Schlüssel unter **Supabase > Authentication > Providers > Apple** eintragen.
 
-## 4. Erlaubte Rücksprungadressen
+## 5. Erlaubte Rücksprungadressen
 
 Unter **Supabase > Authentication > URL Configuration** eintragen:
 
